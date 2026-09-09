@@ -53,6 +53,50 @@ Every highlight remembers its note, line, nearest heading and (optionally) a
 `^recall-…` block ID, so the inbox can jump straight back to the source. PDF
 highlights remember the page and open the PDF at that page.
 
+### Transcript-guided highlighting
+
+Attach a lecture transcript to a note and the two **AI-highlight** commands
+use it as evidence of what the lecturer emphasised, so the model prefers
+spans the lecturer dwells on, repeats, calls important, or says will be
+tested, instead of spreading picks evenly across the note. Spans are still
+copied verbatim from the note; the transcript itself is never quoted.
+
+Run **Add transcript for document highlighting** on an active `.md` note.
+The modal shows the current transcript (origin, character count, added
+date, whether it was cut to the size limit) when one is attached, and lets
+you:
+
+- Paste a transcript into the textarea.
+- **Choose a file from the vault…**, which opens a fuzzy file picker
+  restricted to `md`, `txt`, `vtt`, and `srt` files and reads the chosen
+  file's contents into the textarea.
+- **Save** the transcript (an empty textarea shows a notice instead), **Clear**
+  it (only shown when a transcript already exists), or **Cancel**. `Cmd`/`Ctrl+Enter`
+  in the textarea also saves.
+
+Saving cleans the text before it's stored: WebVTT headers and `NOTE`
+comment blocks are dropped, SRT cue numbers and `-->` timestamp lines are
+removed, leading `[m:ss]`/`[h:mm:ss]`/`(m:ss)`/`(h:mm:ss)` timestamps are
+stripped from the start of a line, and `<v>`, `<c>`, `<b>`, and `<i>` tags
+are removed. Speaker `Name:` prefixes are left in place.
+
+The **Transcript size limit** setting (default 150,000 characters) caps how
+much of the transcript is sent to the highlighter; longer transcripts are
+cut at a sentence boundary rather than mid-sentence.
+
+Once a transcript is attached, both **AI-highlight this note and write
+cards** and **AI-highlight this note with instructions…** pick it up
+automatically, with no separate step, and the notice they show changes to
+mention the transcript.
+
+Limitations:
+
+- Only markdown notes can be AI-highlighted, so a transcript attached to a
+  PDF has no effect.
+- Transcripts are keyed by the note's file path. Renaming or moving a note
+  detaches its transcript; re-add it with **Add transcript for document
+  highlighting** afterward.
+
 ### Triage
 
 Open the inbox from the ribbon, the status bar (`Recall ✎ 2 · ⧉ 7` = 2
