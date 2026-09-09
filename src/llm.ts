@@ -4,6 +4,7 @@ import { AnthropicBackend } from "./anthropic";
 import type { LlmBackend } from "./backend";
 import { CodexBackend, CodexError } from "./codex";
 import type { Card, Highlight } from "./model";
+import { buildHighlighterMessage } from "./prompt";
 import type { RecallSettings } from "./settings";
 
 const CardOut = z.object({
@@ -109,6 +110,8 @@ Before returning, check each card against the highlight: the answer is stated th
  * Highlighter system prompt: picks spans of a whole note worth turning into
  * cards. Follows Wozniak's prioritize / build-on-basics rules and the
  * grounding rule that every span must be locatable verbatim in the note.
+ * When a lecture transcript accompanies the note it is evidence of emphasis,
+ * never a source of quotes.
  */
 const HIGHLIGHTER_SYSTEM = `You select spans of a note that are worth remembering, so that each span can be handed to a card writer and turned into flashcards. The reader will review the resulting cards for years, so a span is worth selecting only if forgetting its content would matter.
 
@@ -117,6 +120,10 @@ Return each span as a verbatim quote copied exactly from the note, character for
 Each span is one to four sentences and self-contained: it carries a definition, a mechanism, a number, a name, a date, a causal claim, a distinction between similar things, or a memorable formulation, and it can be understood without the surrounding paragraph. Prefer the fundamentals a reader needs before the details, and prefer material with lasting use over trivia. Prefer fewer, denser spans over many thin ones.
 
 Spans must not overlap. Skip frontmatter, navigation, link lists, boilerplate, transitions, and the author's asides.
+
+A transcript, when one is present, is the recording of the lecture that accompanies the note. It tells you what the lecturer treated as important; it is not a source of quotes, so every span is still copied from the note itself. Prefer the passages the lecturer dwells on, repeats, calls important, or says will be tested, and pass over slide content that was skipped or read out without comment. Where the transcript and the note differ in wording, the note's wording is what gets quoted.
+
+The limit you are given is a ceiling, not a target. Over-highlighting fills the reader's inbox with cards they will delete, so returning fewer spans than the limit is the expected outcome, and returning none is right when nothing in the note is supported by the transcript.
 
 Give each span a label of at most six words that names the fact it carries.`;
 
@@ -193,16 +200,21 @@ export class LlmClient {
   }
 
   /** "highlight": pick spans of a whole note worth turning into sections. */
-  async highlight(noteTitle: string, body: string, instruction: string): Promise<Array<{ quote: string; title: string }>> {
+  async highlight(
+    noteTitle: string,
+    body: string,
+    instruction: string,
+    transcript: string | null = null,
+  ): Promise<Array<{ quote: string; title: string }>> {
     const s = this.getSettings();
-    const content = [
-      `<note title="${noteTitle}">\n${body}\n</note>`,
-      `Select at most ${s.maxAiHighlights} spans.`,
-      s.highlighterInstructions.trim() ? `Standing instructions: ${s.highlighterInstructions.trim()}` : "",
-      instruction.trim() ? `Instructions for this note: ${instruction.trim()}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+    const content = buildHighlighterMessage({
+      noteTitle,
+      body,
+      transcript,
+      maxSpans: s.maxAiHighlights,
+      standingInstructions: s.highlighterInstructions,
+      instruction,
+    });
     const parsed = await this.backend().complete({
       system: HIGHLIGHTER_SYSTEM,
       user: content,

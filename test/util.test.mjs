@@ -100,3 +100,80 @@ test("canWrapAsHighlight refuses nested or multi-paragraph spans", () => {
   assert.equal(u.canWrapAsHighlight("has ==inner== marks"), false);
   assert.equal(u.canWrapAsHighlight("two\n\nparagraphs"), false);
 });
+
+test("normalizeTranscript strips WebVTT scaffolding", () => {
+  assert.equal(
+    u.normalizeTranscript(
+      "WEBVTT\n\n1\n00:00:01.000 --> 00:00:04.000\nHello there\n\n2\n00:00:04.000 --> 00:00:06.000\nGeneral Kenobi",
+    ),
+    "Hello there\nGeneral Kenobi",
+  );
+});
+
+test("normalizeTranscript strips SRT scaffolding (comma timestamps, no header)", () => {
+  assert.equal(
+    u.normalizeTranscript(
+      "1\n00:00:01,000 --> 00:00:04,000\nFirst line\n\n2\n00:00:04,000 --> 00:00:06,000\nSecond line",
+    ),
+    "First line\nSecond line",
+  );
+});
+
+test("normalizeTranscript strips leading bracketed timestamps", () => {
+  assert.equal(
+    u.normalizeTranscript("[00:12] Today we cover decisional balance.\n(01:30) This will be on the exam."),
+    "Today we cover decisional balance.\nThis will be on the exam.",
+  );
+});
+
+test("normalizeTranscript strips <v> tags but keeps Name: speaker prefixes", () => {
+  assert.equal(
+    u.normalizeTranscript("<v Lecturer>Note this.</v>\nSpeaker 1: keep the speaker label"),
+    "Note this.\nSpeaker 1: keep the speaker label",
+  );
+});
+
+test("normalizeTranscript collapses inner whitespace and extra blank lines", () => {
+  assert.equal(
+    u.normalizeTranscript("Para one.\n\n\n\nPara\ttwo  has   spaces.  "),
+    "Para one.\n\nPara two has spaces.",
+  );
+});
+
+test("normalizeTranscript drops a single-line NOTE block", () => {
+  assert.equal(u.normalizeTranscript("NOTE this is a vtt comment\n\nreal text"), "real text");
+});
+
+test("normalizeTranscript drops a multi-line NOTE block", () => {
+  assert.equal(u.normalizeTranscript("NOTE\nline one of comment\nline two\n\nreal text"), "real text");
+});
+
+test("normalizeTranscript strips cue settings and <c> tags", () => {
+  assert.equal(
+    u.normalizeTranscript("WEBVTT\n\n00:01.000 --> 00:04.000 align:start\n<c>Styled</c> text"),
+    "Styled text",
+  );
+});
+
+test("truncateTranscript leaves short text untouched", () => {
+  assert.deepEqual(u.truncateTranscript("short text", 100), { text: "short text", truncated: false });
+});
+
+test("truncateTranscript cuts at the last sentence boundary within the limit", () => {
+  const r = u.truncateTranscript("One sentence. Two sentence! Three sentence? Four", 30);
+  assert.equal(r.text, "One sentence. Two sentence!");
+  assert.equal(r.truncated, true);
+});
+
+test("truncateTranscript falls back to a word boundary", () => {
+  const r = u.truncateTranscript("word ".repeat(20).trim(), 23);
+  assert.equal(r.truncated, true);
+  assert.ok(r.text.length <= 23);
+  assert.ok(!/\s$/.test(r.text));
+});
+
+test("truncateTranscript hard-cuts when there is no boundary", () => {
+  const r = u.truncateTranscript("x".repeat(50), 10);
+  assert.equal(r.text, "x".repeat(10));
+  assert.equal(r.truncated, true);
+});

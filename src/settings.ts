@@ -23,6 +23,7 @@ export interface RecallSettings {
   writerInstructions: string;
   highlighterInstructions: string;
   maxAiHighlights: number;
+  transcriptMaxChars: number;
   concurrency: number;
   notifyWhenReady: boolean;
 
@@ -63,6 +64,7 @@ export const DEFAULT_SETTINGS: RecallSettings = {
   writerInstructions: "",
   highlighterInstructions: "",
   maxAiHighlights: 12,
+  transcriptMaxChars: 150000,
   concurrency: 2,
   notifyWhenReady: true,
 
@@ -267,6 +269,19 @@ export class RecallSettingTab extends PluginSettingTab {
             s.maxAiHighlights = v;
             save();
           }),
+      );
+
+    new Setting(containerEl)
+      .setName("Transcript size limit")
+      .setDesc(
+        "Characters of an attached lecture transcript sent to the highlighter; longer transcripts are cut at a sentence boundary.",
+      )
+      .addText((t) =>
+        t.setValue(String(s.transcriptMaxChars)).onChange((v) => {
+          const n = Number(v);
+          s.transcriptMaxChars = Number.isInteger(n) && n > 0 ? n : DEFAULT_SETTINGS.transcriptMaxChars;
+          save();
+        }),
       );
 
     new Setting(containerEl)

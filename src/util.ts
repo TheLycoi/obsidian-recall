@@ -223,3 +223,76 @@ export function buildAnkiTextImport(
   }
   return lines.join("\n") + "\n";
 }
+
+// ---- transcripts
+
+const VTT_TIMESTAMP = /^(?:\d{2,}:)?\d{2}:\d{2}[.,]\d{3}\s*-->\s*(?:\d{2,}:)?\d{2}:\d{2}[.,]\d{3}(?:\s+.*)?$/;
+const CUE_NUMBER = /^\d+$/;
+const LEADING_BRACKET_TS = /^[[(](?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d+)?[)\]]\s*/;
+const VTT_TAGS = /<\/?v(?:\s[^>]*)?>|<\/?c>|<\/?b>|<\/?i>/g;
+
+/**
+ * Strip WebVTT/SRT scaffolding (headers, cue numbers, timestamps, NOTE
+ * blocks, `<v>`/`<c>`/`<b>`/`<i>` tags) and leading bracketed timestamps
+ * from a pasted or attached lecture transcript, leaving plain lines of
+ * speech. Speaker prefixes like `Name:` are preserved.
+ */
+export function normalizeTranscript(raw: string): string {
+  let text = raw.replace(/\r\n/g, "\n");
+
+  const lines = text.split("\n");
+  // Drop a leading WEBVTT header line (and anything after it on that line).
+  if (lines.length > 0 && /^WEBVTT\b/.test(lines[0])) lines.shift();
+
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // WebVTT NOTE block: this line and every following line up to the next
+    // blank line are dropped.
+    if (line === "NOTE" || line.startsWith("NOTE ")) {
+      i++;
+      while (i < lines.length && lines[i].trim() !== "") i++;
+      continue;
+    }
+    // Cue number / timestamp lines are scaffolding, not content; drop them
+    // along with the blank separator line that precedes a cue block so
+    // consecutive cues don't turn into paragraph breaks.
+    if (CUE_NUMBER.test(line.trim()) || VTT_TIMESTAMP.test(line.trim())) {
+      if (out.length > 0 && out[out.length - 1] === "") out.pop();
+      continue;
+    }
+
+    let cleaned = line.replace(LEADING_BRACKET_TS, "");
+    cleaned = cleaned.replace(VTT_TAGS, "");
+    cleaned = cleaned.replace(/[ \t]+/g, " ").trim();
+    out.push(cleaned);
+  }
+
+  text = out.join("\n");
+  text = text.replace(/\n{2,}/g, "\n\n");
+  return text.trim();
+}
+
+/**
+ * Cut `text` to at most `maxChars`, preferring a sentence boundary, then a
+ * word boundary, then a hard cut. Used to keep transcripts within the LLM's
+ * context budget.
+ */
+export function truncateTranscript(text: string, maxChars: number): { text: string; truncated: boolean } {
+  if (text.length <= maxChars) return { text, truncated: false };
+
+  const window = text.slice(0, maxChars);
+
+  // Last sentence-ending punctuation followed by whitespace, within the window.
+  let cut = -1;
+  const sentenceRe = /[.!?]\s/g;
+  let m: RegExpExecArray | null;
+  while ((m = sentenceRe.exec(window))) cut = m.index + 1; // keep the punctuation, drop the whitespace
+  if (cut > 0) return { text: window.slice(0, cut).trim(), truncated: true };
+
+  // Last whitespace within the window.
+  const wsIdx = window.search(/\s\S*$/);
+  if (wsIdx > 0) return { text: window.slice(0, wsIdx).trim(), truncated: true };
+
+  return { text: window.trim(), truncated: true };
+}

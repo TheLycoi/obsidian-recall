@@ -1,6 +1,6 @@
 import type { App } from "obsidian";
 import { normalizePath } from "obsidian";
-import type { Highlight, InboxData, Card } from "./model";
+import type { Highlight, InboxData, Card, TranscriptRecord } from "./model";
 
 type Listener = () => void;
 
@@ -119,5 +119,22 @@ export class InboxStore {
     this.data.highlights = this.data.highlights.filter((h) => h.status !== "exported" && h.status !== "dismissed");
     this.touch();
     return before - this.data.highlights.length;
+  }
+
+  getTranscript(sourcePath: string): TranscriptRecord | undefined {
+    return this.data.transcripts?.[sourcePath];
+  }
+
+  setTranscript(sourcePath: string, rec: TranscriptRecord): void {
+    this.data.transcripts ??= {};
+    this.data.transcripts[sourcePath] = rec;
+    this.touch();
+  }
+
+  clearTranscript(sourcePath: string): boolean {
+    if (!this.data.transcripts || !(sourcePath in this.data.transcripts)) return false;
+    delete this.data.transcripts[sourcePath];
+    this.touch();
+    return true;
   }
 }

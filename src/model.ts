@@ -47,9 +47,18 @@ export interface Highlight {
   origin: "selection" | "markdown-highlight" | "ai" | "highlighter" | "pdf";
 }
 
+export interface TranscriptRecord {
+  text: string;
+  origin: "pasted" | "file";
+  sourceFile: string | null;
+  addedAt: string;
+  truncated: boolean;
+}
+
 export interface InboxData {
   version: 1;
   highlights: Highlight[];
+  transcripts?: Record<string, TranscriptRecord>;
 }
 
 export function makeHighlight(
