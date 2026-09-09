@@ -1,0 +1,351 @@
+/* Recall — inbox and modals */
+
+.recall-inbox {
+  padding: 0 var(--size-4-4) var(--size-4-8);
+  overflow-y: auto;
+  outline: none;
+  container-type: inline-size;
+}
+
+/* Narrow pane (right sidebar): stack the highlight above its cards. */
+@container (max-width: 620px) {
+  .recall-hl {
+    grid-template-columns: 1fr;
+  }
+  .recall-cards {
+    grid-template-columns: 1fr;
+  }
+  .recall-header {
+    flex-wrap: wrap;
+  }
+  .recall-header-right {
+    flex-wrap: wrap;
+  }
+}
+
+.recall-muted {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+/* Header ------------------------------------------------------------- */
+.recall-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+  padding: var(--size-4-3) 0 var(--size-4-2);
+  background: var(--background-primary);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.recall-header h2 {
+  margin: 0;
+  font-size: var(--font-ui-large);
+}
+.recall-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-3);
+}
+.recall-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+.recall-stats {
+  display: flex;
+  gap: var(--size-4-3);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+.recall-stat-n {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.recall-stat.is-busy .recall-stat-n {
+  color: var(--color-orange);
+}
+.recall-stat.is-error .recall-stat-n {
+  color: var(--color-red);
+}
+.recall-deck-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.recall-deck-btn .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+.recall-icon-btn {
+  padding: 4px;
+  border-radius: var(--radius-s);
+  background: none;
+  box-shadow: none;
+}
+.recall-icon-btn .svg-icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* Source group -------------------------------------------------------- */
+.recall-source {
+  margin-top: var(--size-4-5);
+}
+.recall-source-head {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding-bottom: var(--size-4-2);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.recall-collapse {
+  display: inline-flex;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.recall-collapse .svg-icon {
+  width: 16px;
+  height: 16px;
+}
+.recall-source-title {
+  font-weight: 600;
+  font-size: var(--font-ui-medium);
+  cursor: pointer;
+  color: var(--text-normal);
+  text-decoration: none;
+}
+.recall-source-title:hover {
+  color: var(--text-accent);
+}
+.recall-source-actions {
+  margin-left: auto;
+}
+
+/* Highlight row ------------------------------------------------------- */
+.recall-hl {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr);
+  gap: var(--size-4-4);
+  padding: var(--size-4-4) 0;
+  border-bottom: 1px dashed var(--background-modifier-border);
+}
+.recall-hl-dismissed {
+  opacity: 0.5;
+}
+.recall-hl-left {
+  min-width: 0;
+}
+.recall-hl-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-bottom: var(--size-4-2);
+}
+.recall-hl-title {
+  font-weight: 600;
+  cursor: text;
+}
+.recall-inline-input {
+  font-weight: 600;
+  width: 100%;
+}
+.recall-badge {
+  font-size: var(--font-ui-smaller);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.recall-badge-ready {
+  background: var(--background-modifier-success);
+  color: var(--text-normal);
+}
+.recall-badge-generating,
+.recall-badge-queued {
+  color: var(--color-orange);
+}
+.recall-badge-error {
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+}
+.recall-badge-exported {
+  color: var(--color-green);
+}
+.recall-badge-duplicate {
+  color: var(--color-yellow);
+}
+.recall-quote {
+  padding: var(--size-4-3);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--text-highlight-bg) 55%, transparent);
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  cursor: pointer;
+}
+.recall-quote:hover {
+  background: var(--text-highlight-bg);
+}
+.recall-hl-where {
+  margin-top: var(--size-4-1);
+}
+.recall-hl-instruction {
+  margin-top: var(--size-4-1);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-accent);
+}
+.recall-error {
+  margin-top: var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+  color: var(--color-red);
+}
+.recall-hl-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: var(--size-4-2);
+}
+
+/* Cards --------------------------------------------------------------- */
+.recall-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--size-4-2);
+  align-content: start;
+}
+.recall-cards-empty {
+  grid-column: 1 / -1;
+  padding: var(--size-4-3);
+}
+.recall-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: var(--size-4-2) var(--size-4-3);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-small);
+  cursor: default;
+}
+.recall-card.is-focused {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+.recall-card-exported,
+.recall-card-duplicate {
+  opacity: 0.55;
+}
+.recall-card-top {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-bottom: var(--size-4-1);
+}
+.recall-kind {
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.recall-card-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.recall-card:hover .recall-card-actions,
+.recall-card.is-focused .recall-card-actions {
+  opacity: 1;
+}
+.recall-field-label {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  margin-top: var(--size-4-1);
+}
+.recall-field {
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.recall-field + .recall-field-label {
+  border-top: 1px dashed var(--background-modifier-border);
+  padding-top: var(--size-4-1);
+  margin-top: var(--size-4-2);
+}
+.recall-cloze-chip {
+  display: inline;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--text-normal);
+  color: var(--background-primary);
+}
+.recall-cloze-n {
+  font-size: 0.7em;
+  vertical-align: super;
+  margin-right: 2px;
+  opacity: 0.8;
+}
+
+/* Editor -------------------------------------------------------------- */
+.recall-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+}
+.recall-editor textarea {
+  width: 100%;
+  font-size: var(--font-ui-small);
+  resize: vertical;
+}
+.recall-editor-btns {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+.recall-editor-btns .recall-muted {
+  margin-left: auto;
+}
+
+/* Empty state ----------------------------------------------------------- */
+.recall-empty {
+  padding: var(--size-4-8) 0;
+  text-align: center;
+}
+
+/* Modal ---------------------------------------------------------------- */
+.recall-modal-textarea {
+  width: 100%;
+  margin-bottom: var(--size-4-2);
+}
+
+/* Status bar ----------------------------------------------------------- */
+.recall-statusbar {
+  cursor: pointer;
+}
+
+/* Highlighter mode ------------------------------------------------------ */
+.side-dock-ribbon-action.recall-highlighter-on,
+.side-dock-ribbon-action.recall-highlighter-on:hover {
+  color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
+  border-radius: var(--radius-s);
+}
+.recall-statusbar-highlighter {
+  color: var(--interactive-accent);
+}
+body.recall-highlighter-active .markdown-source-view .cm-content,
+body.recall-highlighter-active .markdown-preview-view,
+body.recall-highlighter-active .pdf-viewer .textLayer {
+  cursor: text;
+}
+body.recall-highlighter-active .cm-content ::selection,
+body.recall-highlighter-active .markdown-preview-view ::selection,
+body.recall-highlighter-active .textLayer ::selection {
+  background: var(--text-highlight-bg);
+}
+.recall-badge-warn {
+  background: var(--background-modifier-error-hover, var(--background-modifier-error));
+  color: var(--text-normal);
+}

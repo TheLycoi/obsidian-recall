@@ -1,0 +1,26 @@
+{
+  "name": "obsidian-recall",
+  "version": "0.3.0",
+  "description": "Highlight-centric flashcard pipeline for Obsidian: highlight, write cards in the background, triage in an inbox, export to Anki.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "install:vault": "npm run build && node scripts/install.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "builtin-modules": "^5.3.0",
+    "esbuild": "^0.28.2",
+    "obsidian": "^1.13.1",
+    "tslib": "^2.8.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
+    "zod": "^4.5.4"
+  }
+}
