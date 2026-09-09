@@ -7,11 +7,11 @@ import { Highlighter } from "./highlighter";
 import { isPdfFile, readPdfSelection } from "./pdf";
 import { InboxView, VIEW_TYPE_INBOX } from "./inboxView";
 import { LlmClient } from "./llm";
-import { askInstruction, pickDeck } from "./modals";
+import { askInstruction, askTranscript, pickDeck } from "./modals";
 import type { Card, Highlight } from "./model";
 import { DEFAULT_SETTINGS, RecallSettingTab, type RecallSettings } from "./settings";
 import { InboxStore } from "./store";
-import { buildAnkiTextImport } from "./util";
+import { buildAnkiTextImport, normalizeTranscript, truncateTranscript } from "./util";
 
 export default class RecallPlugin extends Plugin {
   settings: RecallSettings = { ...DEFAULT_SETTINGS };
@@ -129,6 +129,35 @@ export default class RecallPlugin extends Plugin {
         if (!checking) {
           void askInstruction(this.app, "What should the highlighter look for?", "e.g. only the definitions and the numbers in the Results section").then((inst) => {
             if (inst !== null) aiHighlightNote(this, file, inst);
+          });
+        }
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "add-transcript",
+      name: "Add transcript for document highlighting",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || file.extension !== "md") return false;
+        if (!checking) {
+          void askTranscript(this.app, this.store.getTranscript(file.path)).then((choice) => {
+            if (choice === null) return;
+            if (choice.action === "clear") {
+              this.store.clearTranscript(file.path);
+              new Notice("Recall: transcript removed.");
+              return;
+            }
+            const cleaned = normalizeTranscript(choice.text);
+            const { text: kept, truncated } = truncateTranscript(cleaned, this.settings.transcriptMaxChars);
+            this.store.setTranscript(file.path, {
+              text: kept,
+              origin: choice.origin,
+              sourceFile: choice.sourceFile,
+              addedAt: new Date().toISOString(),
+              truncated,
+            });
+            new Notice(`Recall: transcript saved (${kept.length.toLocaleString()} characters)${truncated ? ", cut to the size limit" : ""}.`);
           });
         }
         return true;

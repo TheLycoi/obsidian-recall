@@ -316,7 +316,8 @@ export function capturePdfSelection(
  * in the note, mark it, and queue card writing. Fire-and-forget.
  */
 export function aiHighlightNote(plugin: RecallPlugin, file: TFile, instruction = ""): void {
-  new Notice("Recall: choosing highlights in the background…");
+  const transcript = plugin.store.getTranscript(file.path)?.text ?? null;
+  new Notice(transcript !== null ? "Recall: choosing highlights from the transcript in the background…" : "Recall: choosing highlights in the background…");
   void (async () => {
     try {
       const raw = await plugin.app.vault.read(file);
@@ -325,7 +326,7 @@ export function aiHighlightNote(plugin: RecallPlugin, file: TFile, instruction =
         new Notice("Recall: note is too short to highlight.");
         return;
       }
-      const picks = await plugin.llm.highlight(basenameNoExt(file.path), body, instruction);
+      const picks = await plugin.llm.highlight(basenameNoExt(file.path), body, instruction, transcript);
       const located: LocatedSpan[] = [];
       let missed = 0;
       for (const p of picks) {
