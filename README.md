@@ -100,14 +100,15 @@ Limitations:
 ### Card quality
 
 Every card goes through a fixed chain before it reaches the inbox: the
-writer drafts, an optional critique pass reviews the draft, and a
-deterministic linter checks the result. The linter always runs; the
-critique is opt-in. All of this happens inside the background queue
+writer drafts, a critique pass reviews the draft, and a deterministic
+linter checks the result. The linter always runs and costs nothing; the
+critique is on by default and can be turned off. All of this happens
+inside the background queue
 (`Generator.run` in `src/generator.ts`), so capture itself never waits on
 it — a highlight just takes a little longer to turn into ready cards when
 the critique is on.
 
-**Critique pass** (setting, default off) sends the whole set of cards
+**Critique pass** (setting, on by default) sends the whole set of cards
 drafted for one highlight to the model in a single call and gets back a
 verdict per card: `keep`, `revise`, or `drop`, plus the Bloom level the card
 sits at (`src/llm.ts:44-58`, `src/llm.ts:162-237`). It checks grounding
@@ -165,14 +166,18 @@ all eleven ids, shown in the inbox, live in `LINT_LABELS` in `src/lint.ts`.
 
 | setting | default | effect |
 | --- | --- | --- |
-| Critique pass | off | runs the critique described above; adds one model call per highlight |
+| Critique pass | **on** | runs the critique described above; adds one model call per highlight |
 | Lint mode | badge only | what happens to a card that fails a lint check: badge it but keep it pending, collapse it behind a "N flagged" toggle, or flag it so it can't be exported |
-| Learn from my decisions | off | shows the writer and critique a few cards you kept or edited, and a few you deleted, from your own inbox history |
+| Learn from my decisions | **on** | shows the writer and critique a few cards you kept or edited, and a few you deleted, from your own inbox history |
 
-With all three left at their defaults, upgrading changes nothing: the
-critique never runs, lint failures show as a badge without changing a
-card's status, and no history is sent. This reproduces 0.3.1 behaviour
-exactly (`src/settings.ts:99-101`).
+The quality chain is on by default, because a card you delete during review
+cost more than the model call that would have caught it. The linter is free
+and always runs. The critique costs one extra model call per highlight;
+turn it off if you are drafting in bulk and would rather triage by hand.
+
+Lint mode stays at **badge only** by default, which is the conservative
+choice: a card that fails a check is still yours to keep. Nothing in this
+chain ever deletes a card (`src/settings.ts:99-101`).
 
 The cost of turning the critique on is time, not capture speed: it is one
 extra model call per highlight, so cards take longer to appear after you

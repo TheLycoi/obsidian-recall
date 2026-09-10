@@ -96,9 +96,9 @@ export const DEFAULT_SETTINGS: RecallSettings = {
   includeExtra: true,
   exportFolder: "recall-exports",
 
-  critiquePass: false,
+  critiquePass: true,
   lintMode: "badge",
-  historyExamples: false,
+  historyExamples: true,
 };
 
 export class RecallSettingTab extends PluginSettingTab {
@@ -276,7 +276,7 @@ export class RecallSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Critique pass")
       .setDesc(
-        "Before a card is stored, a second model call checks it for grounding, interference between sibling cards, and Bloom fit. Off by default: it adds a second model call for each highlight, so cards take longer to appear and cost more. Capture itself is unaffected either way.",
+        "Before a card is stored, a second model call checks it for grounding, interference between sibling cards, and Bloom fit. On by default, because it is the difference between a card you keep and one you delete. The cost is one extra model call per highlight, so cards take a little longer to appear; capture itself is unaffected either way. Turn it off if you are drafting in bulk and would rather triage by hand.",
       )
       .addToggle((t) =>
         t.setValue(s.critiquePass).onChange((v) => {
@@ -307,7 +307,7 @@ export class RecallSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Learn from my decisions")
       .setDesc(
-        "Shows the card writer a few cards you kept or edited, and a few you deleted, as examples of how you like cards worded. Nothing is sent anywhere new; it reads the local inbox only. Does nothing until you have triaged some cards.",
+        "Shows the card writer a few cards you kept or edited, and a few you deleted, as examples of how you like cards worded. On by default and free: it reads the local inbox only and sends nothing anywhere new. It has no effect until you have triaged some cards, and improves as you do.",
       )
       .addToggle((t) =>
         t.setValue(s.historyExamples).onChange((v) => {
