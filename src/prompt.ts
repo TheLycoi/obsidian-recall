@@ -103,6 +103,7 @@ export interface AskMessageArgs {
   question: string;
   evidence: AskEvidenceIn[];
   history: AskHistoryTurn[];
+  standingInstructions: string;
 }
 
 /**
@@ -111,16 +112,20 @@ export interface AskMessageArgs {
  * The evidence is the long input, so it goes first; the conversation so far
  * follows it; the question comes last. The evidence line carries the note
  * title and page in parentheses so the model can name its source in prose
- * without being handed a link to copy.
+ * without being handed a link to copy. The reader's standing instructions sit
+ * just before the question, the same place the highlighter and digest messages
+ * put theirs.
  */
 export function buildAskMessage(a: AskMessageArgs): string {
   const lines = a.evidence
     .map((e) => `[${e.n}] (${e.noteTitle}${e.page === null ? "" : `, p.${e.page}`}) ${e.text}`)
     .join("\n");
   const history = a.history.map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.text}`).join("\n\n");
+  const standing = a.standingInstructions.trim();
   return [
     `<evidence>\n${lines}\n</evidence>`,
     history ? `<history>\n${history}\n</history>` : "",
+    standing ? `Standing instructions: ${standing}` : "",
     `Question: ${a.question.trim()}`,
   ]
     .filter(Boolean)

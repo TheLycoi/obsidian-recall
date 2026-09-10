@@ -142,13 +142,11 @@ export class ChatPanel {
       this.status = "asking the model…";
       this.rerender();
 
-      // `AskMessageArgs` (src/prompt.ts:102-106) takes question, evidence and
-      // history only — it has no standing-instructions field, so
-      // `settings.askInstructions` is not passed here.
       const draft = await this.plugin.llm.ask({
         question: q,
         evidence: numberEvidence(evidence),
         history: this.history(),
+        standingInstructions: this.plugin.settings.askInstructions,
       });
       const checked = validateCitations(draft.answer, draft.cited, evidence.length);
       this.turns.push({ role: "assistant", text: checked.answer, evidence });

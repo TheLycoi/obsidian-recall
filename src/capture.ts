@@ -15,6 +15,8 @@ import {
   splitFrontmatter,
 } from "./util";
 import { describeError } from "./llm";
+import type { Manifest, ManifestHighlight } from "./manifest";
+import { renderPdfSubpath } from "./pdflink";
 
 function stripMarks(s: string): string {
   return s.replace(/==/g, "");
@@ -348,4 +350,51 @@ export function aiHighlightNote(plugin: RecallPlugin, file: TFile, instruction =
       new Notice(`Recall: highlighting failed. ${describeError(e)}`);
     }
   })();
+}
+
+/**
+ * Queue every manifest highlight as an inbox highlight, so the 0.4.0 writer /
+ * critique / linter chain turns it into cards. This is the "flashcards" and
+ * "both" product of a digest run: the same shape `capturePdfSelection` (:276)
+ * builds for a live PDF selection, with the manifest's own context and the
+ * PDF++ subpath so the inbox's source link opens the exact highlight
+ * (`src/inboxView.ts` `openSource`).
+ */
+export function captureManifestHighlights(
+  plugin: RecallPlugin,
+  manifest: Manifest,
+  items: ManifestHighlight[],
+  noteTitle: string,
+): { added: number; skipped: number } {
+  let added = 0;
+  let skipped = 0;
+  for (const item of items) {
+    const text = item.text.trim();
+    if (text.length < 3) {
+      skipped++;
+      continue;
+    }
+    if (plugin.store.hasDuplicate(manifest.pdfPath, normalizeWs(text))) {
+      skipped++;
+      continue;
+    }
+    const h = makeHighlight({
+      sourcePath: manifest.pdfPath,
+      sourceTitle: basenameNoExt(manifest.pdfPath),
+      text,
+      before: item.before,
+      after: item.after,
+      line: 0,
+      page: item.page,
+      heading: `page ${item.page}`,
+      title: noteTitle,
+      subpath: renderPdfSubpath(item.target),
+      origin: "pdf",
+    });
+    plugin.store.add(h);
+    plugin.generator.enqueue(h);
+    added++;
+  }
+  new Notice(`Recall: ${added} highlight${added === 1 ? "" : "s"} queued as flashcards${skipped ? `, ${skipped} skipped` : ""}.`);
+  return { added, skipped };
 }

@@ -161,6 +161,7 @@ const askBase = {
     { n: 2, noteTitle: "Receptors", page: 4, text: "Receptors transduce a signal to produce a biological effect." },
   ],
   history: [],
+  standingInstructions: "",
 };
 
 test("ask puts the evidence first and the question last", () => {
@@ -207,6 +208,34 @@ test("history sits between the evidence and the question and vanishes when empty
 
   const bare = p.buildAskMessage({ ...askBase });
   assert.ok(!bare.includes("<history>"), "an empty history adds no block");
+});
+
+test("ask puts standing instructions after the transcript blocks and before the question", () => {
+  const withHistory = p.buildAskMessage({
+    ...askBase,
+    history: [{ role: "user", text: "What is a receptor?" }],
+    standingInstructions: "Answer in Dutch.",
+  });
+  const history = withHistory.indexOf("<history>");
+  const standing = withHistory.indexOf("Standing instructions: Answer in Dutch.");
+  const question = withHistory.indexOf("Question: ");
+  assert.ok(standing !== -1, "the standing block is present");
+  assert.ok(history < standing, "standing instructions follow the history");
+  assert.ok(standing < question, "standing instructions precede the question");
+
+  const noHistory = p.buildAskMessage({ ...askBase, standingInstructions: "Answer in Dutch." });
+  assert.ok(!noHistory.includes("<history>"), "no history block when there are no turns");
+  assert.ok(
+    noHistory.indexOf("<evidence>") < noHistory.indexOf("Standing instructions:"),
+    "without a history the standing block follows the evidence",
+  );
+  assert.ok(
+    noHistory.indexOf("Standing instructions:") < noHistory.indexOf("Question: "),
+    "and still precedes the question",
+  );
+
+  const blank = p.buildAskMessage({ ...askBase, standingInstructions: "   " });
+  assert.ok(!blank.includes("Standing instructions:"), "blank standing instructions are omitted");
 });
 
 // --- schemas ----------------------------------------------------------------

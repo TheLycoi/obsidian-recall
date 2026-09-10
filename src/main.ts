@@ -5,6 +5,8 @@ import { aiHighlightNote, captureMarkdownHighlights, capturePdfSelection, captur
 import { Generator } from "./generator";
 import { Highlighter } from "./highlighter";
 import { isPdfFile, readPdfSelection } from "./pdf";
+import { isManifestNote } from "./pdfHighlights";
+import { digestPdf, extractPdfHighlights } from "./digest";
 import { InboxView, VIEW_TYPE_INBOX } from "./inboxView";
 import { LlmClient } from "./llm";
 import { askInstruction, askTranscript, pickDeck } from "./modals";
@@ -166,6 +168,37 @@ export default class RecallPlugin extends Plugin {
         return true;
       },
     });
+    this.addCommand({
+      id: "extract-pdf-highlights",
+      name: "Extract PDF highlights to manifest",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!isPdfFile(file)) return false;
+        if (!checking) void extractPdfHighlights(this, file);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "digest-pdf-highlights",
+      name: "Digest PDF highlights into topic notes…",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !(isPdfFile(file) || isManifestNote(this, file))) return false;
+        if (!checking) void digestPdf(this, file, "model");
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "digest-pdf-highlights-from-json",
+      name: "Digest PDF highlights from pasted model output…",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !(isPdfFile(file) || isManifestNote(this, file))) return false;
+        if (!checking) void digestPdf(this, file, "paste");
+        return true;
+      },
+    });
+    this.addCommand({ id: "open-chat", name: "Ask the notes", callback: () => void this.openChat() });
     this.addCommand({ id: "open-inbox", name: "Open inbox", callback: () => void this.openInbox() });
     this.addCommand({
       id: "export-reviewed",
