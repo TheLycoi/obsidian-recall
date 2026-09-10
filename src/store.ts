@@ -100,18 +100,29 @@ export class InboxStore {
     );
   }
 
-  counts(): { queued: number; generating: number; toReview: number; errors: number } {
+  /**
+   * `flagged` is counted separately from `toReview` rather than folded into
+   * it: a flagged card is neither pending nor exported, so without its own
+   * figure it would vanish from every count while still sitting in the inbox
+   * waiting for the reviewer to decide. `toReview` keeps meaning exactly what
+   * it meant before — pending cards under a ready highlight.
+   */
+  counts(): { queued: number; generating: number; toReview: number; flagged: number; errors: number } {
     let queued = 0;
     let generating = 0;
     let toReview = 0;
+    let flagged = 0;
     let errors = 0;
     for (const h of this.data.highlights) {
       if (h.status === "queued") queued++;
       else if (h.status === "generating") generating++;
       else if (h.status === "error") errors++;
-      if (h.status === "ready") toReview += h.cards.filter((c) => c.status === "pending").length;
+      if (h.status === "ready") {
+        toReview += h.cards.filter((c) => c.status === "pending").length;
+        flagged += h.cards.filter((c) => c.status === "flagged").length;
+      }
     }
-    return { queued, generating, toReview, errors };
+    return { queued, generating, toReview, flagged, errors };
   }
 
   clearExported(): number {

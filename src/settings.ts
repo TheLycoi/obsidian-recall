@@ -4,6 +4,7 @@ import type RecallPlugin from "./main";
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 export type Provider = "anthropic" | "codex";
 export type MarkMode = "none" | "highlight" | "highlight+block";
+export type LintMode = "badge" | "hide" | "drop";
 
 export interface RecallSettings {
   // LLM
@@ -49,6 +50,14 @@ export interface RecallSettings {
   includeSourceTag: boolean;
   includeExtra: boolean;
   exportFolder: string;
+
+  // Card quality
+  /** Second model call per highlight that checks grounding, sibling interference, and Bloom fit before the card is stored. */
+  critiquePass: boolean;
+  /** What happens to a card that fails a deterministic lint check. */
+  lintMode: LintMode;
+  /** Show the card writer examples from cards you kept, edited, or deleted, drawn from the local inbox. */
+  historyExamples: boolean;
 }
 
 export const DEFAULT_SETTINGS: RecallSettings = {
@@ -86,6 +95,10 @@ export const DEFAULT_SETTINGS: RecallSettings = {
   includeSourceTag: true,
   includeExtra: true,
   exportFolder: "recall-exports",
+
+  critiquePass: true,
+  lintMode: "badge",
+  historyExamples: true,
 };
 
 export class RecallSettingTab extends PluginSettingTab {
@@ -257,6 +270,51 @@ export class RecallSettingTab extends PluginSettingTab {
           save();
         });
       });
+
+    new Setting(containerEl).setName("Card quality").setHeading();
+
+    new Setting(containerEl)
+      .setName("Critique pass")
+      .setDesc(
+        "Before a card is stored, a second model call checks it for grounding, interference between sibling cards, and Bloom fit. On by default, because it is the difference between a card you keep and one you delete. The cost is one extra model call per highlight, so cards take a little longer to appear; capture itself is unaffected either way. Turn it off if you are drafting in bulk and would rather triage by hand.",
+      )
+      .addToggle((t) =>
+        t.setValue(s.critiquePass).onChange((v) => {
+          s.critiquePass = v;
+          save();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Lint mode")
+      .setDesc(
+        "The deterministic checks (cloze grounding, card length, yes/no questions) always run. This only decides what happens to a card that fails one.",
+      )
+      .addDropdown((d) =>
+        d
+          .addOptions({
+            badge: "Badge only — flag problems, keep the card",
+            hide: "Collapse — tuck flagged cards behind a toggle",
+            drop: "Flag — mark them flagged so they cannot be exported",
+          })
+          .setValue(s.lintMode)
+          .onChange((v) => {
+            s.lintMode = v as LintMode;
+            save();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Learn from my decisions")
+      .setDesc(
+        "Shows the card writer a few cards you kept or edited, and a few you deleted, as examples of how you like cards worded. On by default and free: it reads the local inbox only and sends nothing anywhere new. It has no effect until you have triaged some cards, and improves as you do.",
+      )
+      .addToggle((t) =>
+        t.setValue(s.historyExamples).onChange((v) => {
+          s.historyExamples = v;
+          save();
+        }),
+      );
 
     new Setting(containerEl)
       .setName("Max AI highlights per note")

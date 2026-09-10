@@ -1,8 +1,35 @@
 import { newId } from "./util";
 
 export type HighlightStatus = "queued" | "generating" | "ready" | "exported" | "error" | "dismissed";
-export type CardStatus = "pending" | "exported" | "duplicate" | "deleted";
+/**
+ * "flagged" is a card the critique or the linter rejected. It stays in the
+ * inbox with its reasons attached so the reviewer decides. It is not pending,
+ * so `pendingItems` in main.ts keeps it out of Anki with no extra check.
+ */
+export type CardStatus = "pending" | "exported" | "duplicate" | "deleted" | "flagged";
 export type CardKind = "qa" | "cloze";
+
+/**
+ * Deterministic lint rule ids. Declared here, not in lint.ts, so the linter
+ * that produces them, the Card that stores them, and the inbox view that
+ * renders a label for each share one union: renaming an id then fails to
+ * compile instead of silently rendering no badge.
+ */
+export type LintFailureId =
+  | "cloze-not-grounded"
+  | "cloze-count"
+  | "cloze-numbering"
+  | "cloze-framing"
+  | "qa-empty"
+  | "qa-answer-long"
+  | "qa-yes-no"
+  | "card-long"
+  | "answer-in-question";
+
+export type LintWarningId = "duplicate-card" | "shared-answer";
+
+/** Bloom's taxonomy level, judged by the critique pass. See README. */
+export type BloomLevel = "remember" | "understand" | "apply" | "analyze" | "evaluate" | "create";
 
 export interface Card {
   id: string;
@@ -19,6 +46,17 @@ export interface Card {
   edited: boolean;
   ankiNoteId?: number;
   createdAt: string;
+  /** Deterministic lint failures recorded when the card was generated. */
+  lintFailures?: LintFailureId[];
+  /** One-sentence reason from the critique pass, shown to the reviewer. */
+  critiqueReason?: string;
+  /** Bloom level the critique judged this card to sit at. */
+  bloom?: BloomLevel;
+  /**
+   * True when a critique verdict came back for this card. Absent means the
+   * pass was off, skipped, or failed — not that the card was approved.
+   */
+  critiqueRan?: boolean;
 }
 
 export interface Highlight {
