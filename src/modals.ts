@@ -1,5 +1,6 @@
-import { App, FuzzySuggestModal, Modal, Notice, Setting, SuggestModal, TFile } from "obsidian";
+import { App, ButtonComponent, FuzzySuggestModal, Modal, Notice, Setting, SuggestModal, TFile } from "obsidian";
 import type { TranscriptRecord } from "./model";
+import type { PreparedNote } from "./topicNote";
 
 /** Ask for a free-text instruction. Resolves null when cancelled. */
 export class InstructionModal extends Modal {
@@ -243,4 +244,267 @@ export class TranscriptModal extends Modal {
 
 export function askTranscript(app: App, current: TranscriptRecord | undefined): Promise<TranscriptChoice | null> {
   return new Promise((resolve) => new TranscriptModal(app, current, resolve).open());
+}
+
+/** What a digest run should produce. */
+export type DigestProduct = "notes" | "flashcards" | "both";
+
+const DIGEST_PRODUCT_LABELS: Record<DigestProduct, string> = {
+  notes: "Topic notes",
+  flashcards: "Flashcards",
+  both: "Both",
+};
+
+/** Choose the product of a digest run and an optional per-PDF instruction. */
+export class DigestOptionsModal extends Modal {
+  private product: DigestProduct;
+  private instruction: string;
+  private resolved = false;
+
+  constructor(
+    app: App,
+    private defaults: { product: DigestProduct; instruction: string },
+    private resolve: (v: { product: DigestProduct; instruction: string } | null) => void,
+  ) {
+    super(app);
+    this.product = defaults.product;
+    this.instruction = defaults.instruction;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.addClass("recall-modal");
+    contentEl.createEl("h3", { text: "Digest PDF highlights" });
+
+    new Setting(contentEl).setName("Produce").addDropdown((d) => {
+      (Object.keys(DIGEST_PRODUCT_LABELS) as DigestProduct[]).forEach((key) =>
+        d.addOption(key, DIGEST_PRODUCT_LABELS[key]),
+      );
+      d.setValue(this.product);
+      d.onChange((v) => (this.product = v as DigestProduct));
+    });
+
+    const ta = contentEl.createEl("textarea", {
+      attr: { rows: "3", placeholder: "e.g. split receptors and enzymes into separate notes" },
+    });
+    ta.addClass("recall-modal-textarea");
+    ta.value = this.instruction;
+    ta.addEventListener("input", () => (this.instruction = ta.value));
+    ta.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        this.submit();
+      }
+    });
+
+    new Setting(contentEl)
+      .addButton((b) => b.setButtonText("Cancel").onClick(() => this.close()))
+      .addButton((b) =>
+        b
+          .setCta()
+          .setButtonText("Continue")
+          .onClick(() => this.submit()),
+      );
+
+    window.setTimeout(() => ta.focus(), 20);
+  }
+
+  private submit() {
+    this.resolved = true;
+    this.resolve({ product: this.product, instruction: this.instruction.trim() });
+    this.close();
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.resolved) this.resolve(null);
+  }
+}
+
+export function askDigestOptions(
+  app: App,
+  defaults: { product: DigestProduct; instruction: string },
+): Promise<{ product: DigestProduct; instruction: string } | null> {
+  return new Promise((resolve) => new DigestOptionsModal(app, defaults, resolve).open());
+}
+
+/** Paste a model's raw JSON output (the interim, provider-less path). */
+export class PasteJsonModal extends Modal {
+  private value = "";
+  private resolved = false;
+
+  constructor(
+    app: App,
+    private title: string,
+    private help: string,
+    private resolve: (v: string | null) => void,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.addClass("recall-modal");
+    contentEl.createEl("h3", { text: this.title });
+    contentEl.createEl("p", { text: this.help, cls: "recall-muted" });
+
+    const ta = contentEl.createEl("textarea", { attr: { rows: "14", placeholder: "Paste the model's JSON here…" } });
+    ta.addClass("recall-modal-textarea");
+
+    let useBtn!: ButtonComponent;
+    new Setting(contentEl)
+      .addButton((b) => b.setButtonText("Cancel").onClick(() => this.close()))
+      .addButton((b) => {
+        useBtn = b;
+        b.setCta()
+          .setButtonText("Use")
+          .setDisabled(true)
+          .onClick(() => this.submit());
+      });
+
+    ta.addEventListener("input", () => {
+      this.value = ta.value;
+      useBtn.setDisabled(this.value.trim().length === 0);
+    });
+
+    window.setTimeout(() => ta.focus(), 20);
+  }
+
+  private submit() {
+    const text = this.value.trim();
+    if (!text) return;
+    this.resolved = true;
+    this.resolve(text);
+    this.close();
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.resolved) this.resolve(null);
+  }
+}
+
+export function askPastedJson(app: App, title: string, help: string): Promise<string | null> {
+  return new Promise((resolve) => new PasteJsonModal(app, title, help, resolve).open());
+}
+
+/**
+ * Preview the notes a digest run would write. Checkbox state defaults to
+ * checked, except an existing note that would gain nothing (`exists && added
+ * === 0`). Titles are editable inline; edits update the resolved note's
+ * `title` (the caller re-derives `path` and re-checks existence before
+ * writing — this modal never touches the vault).
+ */
+export class DigestPreviewModal extends Modal {
+  private checked: boolean[];
+  private titles: string[];
+  private resolved = false;
+  private writeBtn!: ButtonComponent;
+
+  constructor(
+    app: App,
+    private notes: PreparedNote[],
+    private extras: { flashcards: number; unknownIds: string[]; unassignedIds: string[] },
+    private pdfBasename: string,
+    private resolve: (v: PreparedNote[] | null) => void,
+  ) {
+    super(app);
+    this.checked = notes.map((n) => !(n.exists && n.added === 0));
+    this.titles = notes.map((n) => n.title);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.addClass("recall-modal");
+    contentEl.addClass("recall-preview");
+    contentEl.createEl("h3", { text: `Proposed topic notes for ${this.pdfBasename}` });
+
+    const totalHighlights = this.notes.reduce((sum, n) => sum + n.highlights.length, 0);
+    const alreadyPresent = this.notes.reduce((sum, n) => sum + (n.exists ? n.skipped : 0), 0);
+    let countsText =
+      `${this.notes.length} notes · ${totalHighlights} highlights · ${alreadyPresent} already present · ` +
+      `${this.extras.unknownIds.length} unknown ids dropped · ${this.extras.unassignedIds.length} unassigned`;
+    if (this.extras.flashcards > 0) countsText += ` · ${this.extras.flashcards} flashcards will be queued`;
+    contentEl.createEl("p", { text: countsText, cls: "recall-muted recall-preview-counts" });
+
+    const list = contentEl.createDiv();
+    this.notes.forEach((note, i) => {
+      const card = list.createDiv({ cls: "recall-preview-note" });
+      const head = card.createDiv({ cls: "recall-preview-head" });
+
+      const checkbox = head.createEl("input", { attr: { type: "checkbox" } }) as HTMLInputElement;
+      checkbox.checked = this.checked[i];
+      checkbox.addEventListener("change", () => {
+        this.checked[i] = checkbox.checked;
+        this.updateWriteButton();
+      });
+
+      const titleInput = head.createEl("input", { attr: { type: "text" } }) as HTMLInputElement;
+      titleInput.addClass("recall-inline-input");
+      titleInput.addClass("recall-preview-title");
+      titleInput.value = note.title;
+      titleInput.addEventListener("input", () => {
+        this.titles[i] = titleInput.value;
+      });
+
+      const badgeText = note.exists ? `exists: +${note.added}, ${note.skipped} skipped` : "new";
+      head.createSpan({ text: badgeText, cls: "recall-badge recall-preview-badge" });
+
+      card.createEl("div", { text: note.path, cls: "recall-muted" });
+      card.createEl("p", { text: note.summary });
+
+      const hlList = card.createEl("ul", { cls: "recall-preview-highlights" });
+      note.highlights.forEach((h) => {
+        const li = hlList.createEl("li");
+        li.createEl("strong", { text: `p.${h.page} ` });
+        const cut = h.text.length > 80 ? `${h.text.slice(0, 80)}…` : h.text;
+        li.createSpan({ text: cut });
+      });
+
+      if (note.related.length > 0) {
+        card.createEl("div", { text: `Related: ${note.related.join(", ")}`, cls: "recall-muted" });
+      }
+    });
+
+    const buttons = new Setting(contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close()));
+    buttons.addButton((b) => {
+      this.writeBtn = b;
+      b.setCta().onClick(() => this.submit());
+    });
+    this.updateWriteButton();
+  }
+
+  private checkedCount(): number {
+    return this.checked.filter(Boolean).length;
+  }
+
+  private updateWriteButton(): void {
+    const n = this.checkedCount();
+    this.writeBtn.setButtonText(`Write ${n} notes`);
+    this.writeBtn.setDisabled(n === 0);
+  }
+
+  private submit() {
+    if (this.checkedCount() === 0) return;
+    this.resolved = true;
+    const result = this.notes
+      .map((note, i) => ({ ...note, title: this.titles[i] }))
+      .filter((_, i) => this.checked[i]);
+    this.resolve(result);
+    this.close();
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.resolved) this.resolve(null);
+  }
+}
+
+export function previewDigest(
+  app: App,
+  notes: PreparedNote[],
+  extras: { flashcards: number; unknownIds: string[]; unassignedIds: string[] },
+  pdfBasename: string,
+): Promise<PreparedNote[] | null> {
+  return new Promise((resolve) => new DigestPreviewModal(app, notes, extras, pdfBasename, resolve).open());
 }
