@@ -48,6 +48,8 @@ export interface Card {
   createdAt: string;
   /** Deterministic lint failures recorded when the card was generated. */
   lintFailures?: LintFailureId[];
+  /** Non-blocking lint warnings (interference risks) recorded alongside them. */
+  lintWarnings?: LintWarningId[];
   /** One-sentence reason from the critique pass, shown to the reviewer. */
   critiqueReason?: string;
   /** Bloom level the critique judged this card to sit at. */

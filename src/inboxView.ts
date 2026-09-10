@@ -376,9 +376,18 @@ export class InboxView extends ItemView {
         const b = top.createSpan({ cls: "recall-badge recall-badge-warn", text: LINT_LABELS[id] });
         b.title = `Lint check failed: ${id}`;
       }
+      for (const id of c.lintWarnings ?? []) {
+        const b = top.createSpan({ cls: "recall-badge recall-badge-note", text: LINT_LABELS[id] });
+        b.title = `Interference risk: ${id}`;
+      }
       if (c.critiqueReason) {
         const b = top.createSpan({ cls: "recall-badge recall-badge-critique", text: "critique" });
         b.title = c.critiqueReason;
+      } else if (c.critiqueRan) {
+        // Without this the reviewer cannot tell a card the critique read and
+        // kept from one it never saw (pass off, skipped as trivial, or failed).
+        const b = top.createSpan({ cls: "recall-badge recall-badge-checked", text: "checked" });
+        b.title = "The critique pass reviewed this card and kept it as written.";
       }
     }
     const actions = top.createDiv({ cls: "recall-card-actions" });
@@ -391,13 +400,13 @@ export class InboxView extends ItemView {
         fn();
       });
     };
-    if (this.lintNotes(c)) {
-      btn("wrench", "Fix with linter notes", () => void this.rewrite(h, c, this.lintInstruction(c)));
-    }
     // Flagged cards get the same actions as pending ones: the reader has to be
     // able to edit or bin a card the critique objected to, not just re-run the
     // fix. Only the export path treats flagged differently (main.ts pendingItems).
     if (c.status === "pending" || c.status === "flagged") {
+      if (this.lintNotes(c)) {
+        btn("wrench", "Fix with linter notes", () => void this.rewrite(h, c, this.lintInstruction(c)));
+      }
       btn("pencil", "Edit (e)", () => {
         this.editing = this.editing === c.id ? null : c.id;
         this.render();
@@ -485,6 +494,13 @@ export class InboxView extends ItemView {
         c.status = "deleted";
       } else if (JSON.stringify([c.kind, c.front, c.back, c.text, c.extra]) !== before) {
         c.edited = true;
+        // Same reasoning as rewrite(): a manual edit invalidates whatever the
+        // linter/critique recorded about the previous wording, and lifts a
+        // flagged card back to pending so it can be exported again.
+        if (c.status === "flagged") c.status = "pending";
+        delete c.lintFailures;
+        delete c.lintWarnings;
+        delete c.critiqueReason;
       }
       this.editing = null;
       this.plugin.store.touch();
@@ -557,6 +573,7 @@ export class InboxView extends ItemView {
       // the fix action; the linter runs again on the next generation pass.
       if (c.status === "flagged") c.status = "pending";
       delete c.lintFailures;
+      delete c.lintWarnings;
       delete c.critiqueReason;
       this.plugin.store.touch();
     } catch (e) {
