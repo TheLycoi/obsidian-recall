@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const DEFAULT_VAULT =
-  "/Users/conradkelonu/Library/Mobile Documents/iCloud~md~obsidian/Documents/academic wiki";
+  "/Users/conradkelonu/Library/Mobile Documents/iCloud~md~obsidian/Documents/projects";
 const vault = process.argv[2] ?? DEFAULT_VAULT;
 const dest = path.join(vault, ".obsidian", "plugins", "recall");
 fs.mkdirSync(dest, { recursive: true });

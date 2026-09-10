@@ -83,6 +83,8 @@ export interface Highlight {
   exportedAt: string | null;
   cards: Card[];
   origin: "selection" | "markdown-highlight" | "ai" | "highlighter" | "pdf";
+  /** PDF++ subpath (page=…&selection=…|annotation=…|rect=…) when the highlight came from a PDF++ link; lets the inbox open the exact highlight. */
+  subpath?: string;
 }
 
 export interface TranscriptRecord {

@@ -571,6 +571,10 @@ export class InboxView extends ItemView {
   }
 
   private async openSource(h: Highlight): Promise<void> {
+    if (h.subpath) {
+      await this.plugin.app.workspace.openLinkText(`${h.sourcePath}#${h.subpath}`, "", "tab");
+      return;
+    }
     if (h.page) {
       await this.plugin.app.workspace.openLinkText(`${h.sourcePath}#page=${h.page}`, "", "tab");
       return;

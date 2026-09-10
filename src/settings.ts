@@ -51,6 +51,22 @@ export interface RecallSettings {
   includeExtra: boolean;
   exportFolder: string;
 
+  // PDF digest
+  manifestFolder: string;
+  topicFolder: string;
+  digestMaxNotes: number;
+  digestInstructions: string;
+  paperTextMaxChars: number;
+
+  // Ask
+  askEvidenceCount: number;
+  askMaxTurns: number;
+  askInstructions: string;
+
+  // Sidebar
+  /** Persisted by the view; no setting UI. */
+  sidebarMode: "inbox" | "chat";
+
   // Card quality
   /** Second model call per highlight that checks grounding, sibling interference, and Bloom fit before the card is stored. */
   critiquePass: boolean;
@@ -95,6 +111,18 @@ export const DEFAULT_SETTINGS: RecallSettings = {
   includeSourceTag: true,
   includeExtra: true,
   exportFolder: "recall-exports",
+
+  manifestFolder: "recall-manifests",
+  topicFolder: "classes",
+  digestMaxNotes: 6,
+  digestInstructions: "",
+  paperTextMaxChars: 60000,
+
+  askEvidenceCount: 12,
+  askMaxTurns: 10,
+  askInstructions: "",
+
+  sidebarMode: "inbox",
 
   critiquePass: true,
   lintMode: "badge",
@@ -414,6 +442,106 @@ export class RecallSettingTab extends PluginSettingTab {
           save();
         }),
       );
+
+    new Setting(containerEl).setName("PDF digest").setHeading();
+
+    new Setting(containerEl)
+      .setName("Manifest folder")
+      .setDesc("Vault folder for one manifest file per PDF, overwritten on re-extract.")
+      .addText((t) =>
+        t.setValue(s.manifestFolder).onChange((v) => {
+          s.manifestFolder = v.trim() || DEFAULT_SETTINGS.manifestFolder;
+          save();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Topic notes folder")
+      .setDesc(
+        "Topic notes are written to <folder>/<class code>/<title>.md; the class code comes from sources/class notes/<code>/ or is asked for.",
+      )
+      .addText((t) =>
+        t.setValue(s.topicFolder).onChange((v) => {
+          s.topicFolder = v.trim() || DEFAULT_SETTINGS.topicFolder;
+          save();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Max topic notes per PDF")
+      .addSlider((sl) =>
+        sl
+          .setLimits(1, 12, 1)
+          .setValue(s.digestMaxNotes)
+          .setDynamicTooltip()
+          .onChange((v) => {
+            s.digestMaxNotes = v;
+            save();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Paper text limit")
+      .setDesc(
+        "Characters of the PDF's text sent with the highlights when writing summaries; longer papers are cut at a sentence boundary.",
+      )
+      .addText((t) =>
+        t.setValue(String(s.paperTextMaxChars)).onChange((v) => {
+          const n = Number(v);
+          s.paperTextMaxChars = Number.isInteger(n) && n > 0 ? n : DEFAULT_SETTINGS.paperTextMaxChars;
+          save();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Standing instructions for the digest")
+      .addTextArea((t) => {
+        t.inputEl.rows = 3;
+        t.inputEl.cols = 50;
+        t.setValue(s.digestInstructions).onChange((v) => {
+          s.digestInstructions = v;
+          save();
+        });
+      });
+
+    new Setting(containerEl).setName("Ask").setHeading();
+
+    new Setting(containerEl)
+      .setName("Evidence per question")
+      .addSlider((sl) =>
+        sl
+          .setLimits(4, 30, 1)
+          .setValue(s.askEvidenceCount)
+          .setDynamicTooltip()
+          .onChange((v) => {
+            s.askEvidenceCount = v;
+            save();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Conversation turns kept")
+      .addSlider((sl) =>
+        sl
+          .setLimits(2, 30, 1)
+          .setValue(s.askMaxTurns)
+          .setDynamicTooltip()
+          .onChange((v) => {
+            s.askMaxTurns = v;
+            save();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Standing instructions for Ask")
+      .addTextArea((t) => {
+        t.inputEl.rows = 3;
+        t.inputEl.cols = 50;
+        t.setValue(s.askInstructions).onChange((v) => {
+          s.askInstructions = v;
+          save();
+        });
+      });
 
     new Setting(containerEl).setName("Anki").setHeading();
 

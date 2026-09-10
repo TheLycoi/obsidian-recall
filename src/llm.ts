@@ -5,7 +5,10 @@ import type { LlmBackend } from "./backend";
 import { CodexBackend, CodexError } from "./codex";
 import { buildExamplesBlock } from "./examples";
 import type { BloomLevel, Card, Highlight } from "./model";
-import { buildHighlighterMessage } from "./prompt";
+import type { AskMessageArgs, DigestMessageArgs } from "./prompt";
+import { buildAskMessage, buildDigestMessage, buildHighlighterMessage } from "./prompt";
+import { AskOut as AskOutSchema, DigestOut as DigestOutSchema } from "./schemas";
+import type { AskDraft, DigestDraft } from "./schemas";
 import type { RecallSettings } from "./settings";
 
 const CardOut = z.object({
@@ -420,6 +423,33 @@ export class LlmClient {
     });
     return parsed.highlights;
   }
+
+  /** "digest": one lecture PDF's text and its highlights in, a handful of topic notes out. */
+  async digest(args: DigestMessageArgs): Promise<DigestDraft> {
+    return this.backend().complete({
+      system: DIGEST_SYSTEM,
+      user: buildDigestMessage(args),
+      schema: DigestOutSchema,
+      label: "topic notes",
+      maxTokens: 16000,
+    });
+  }
+
+  /**
+   * "ask": one question against numbered evidence from the reader's own notes.
+   * The `[n]` citations are checked by the caller (`validateCitations` in
+   * retrieval.ts), which is the same check the pasted-JSON path runs, so
+   * nothing is validated here.
+   */
+  async ask(args: AskMessageArgs): Promise<AskDraft> {
+    return this.backend().complete({
+      system: ASK_SYSTEM,
+      user: buildAskMessage(args),
+      schema: AskOutSchema,
+      label: "answer",
+      maxTokens: 4000,
+    });
+  }
 }
 
 export function describeError(e: unknown): string {
@@ -432,3 +462,90 @@ export function describeError(e: unknown): string {
   if (e instanceof Error) return e.message;
   return String(e);
 }
+
+/**
+ * Digest system prompt: one lecture PDF's text plus the highlights the reader
+ * made in it, out come a handful of topic notes. Same register as
+ * WRITER_SYSTEM above: the reader's own material is the only source, and the
+ * model writes prose and assignments, never links or callouts (the plugin
+ * renders every callout from the manifest).
+ */
+const DIGEST_SYSTEM = `You turn one lecture PDF and the highlights a student made in it into a handful of topic notes. You are given the paper's text, so that you can see what each highlight is about, and the highlights themselves, each with an id and a page. You return, for each topic, a title, a short summary, and the ids of the highlights that belong to it. You never write links, callouts, or ids into your prose: the plugin renders each highlight back into the note from its own record, and prose that mentions H04 will be read by a person, not resolved by a machine.
+
+<what_a_topic_is>
+A topic is something the reader would look up by name later: a mechanism, a classification, a definition together with what follows from it, a distinction between two things that are easy to confuse. It is not a slide, not a section of the deck, and not the lecture itself. One lecture usually holds two to six of them. Fewer, larger topics beat many thin ones, because a note with one highlight in it is a note the reader will never open twice.
+
+Every highlight belongs to the topic it serves best, and a highlight may serve more than one: a definition of affinity can sit under both the receptor topic and the dose-response topic, and putting it in both is right when a reader arriving at either would want it. What does not belong in any topic goes in unused_ids: slide titles, course logistics, dates, a name on a title page, a rectangle whose text came out empty. Leaving such a highlight in a topic costs the reader more than dropping it, because it dilutes the note it lands in.
+
+You are told which notes already exist for this class. When one of those titles is the topic a group of highlights belongs to, reuse the title exactly, character for character, because the plugin then appends those highlights to that note instead of creating a second one beside it. Reuse it only when it genuinely fits; a near-match that forces unrelated highlights together is worse than a new note.
+</what_a_topic_is>
+
+<the_summary>
+Three to five sentences about this topic, drawn from the whole paper but weighted toward what the reader chose to highlight. The highlights tell you what they cared about; the rest of the paper tells you what those highlights mean, and lets you write the sentence that connects two of them. Write in the reader's language, the one the paper is written in, and keep close to its wording so the summary reads as their own note rather than as a stranger's gloss.
+
+Nothing from outside the paper. If you know more about the subject than the paper says, that knowledge does not belong here: the reader will study from this note and cannot tell your additions from theirs. No citations, no links, no highlight ids, no page numbers in the prose. The highlights appear underneath the summary in the finished note, so the summary does not need to quote them; it needs to say what they add up to.
+</the_summary>
+
+<titles_and_related>
+A title is a short noun phrase in Title Case, the way an index entry reads: "Receptor Binding", "First-Pass Metabolism", "Stages of Change". Not a sentence, not a question, and unique within your response. Two titles that differ only in case or in a plural are the same title, and one of the two notes will be lost.
+
+related lists the titles of other notes you are writing in this response, or of the existing notes you were shown, and nothing else. An invented title points at a note that does not exist. Leave it empty when nothing connects.
+</titles_and_related>
+
+<examples>
+<example>
+<input>Highlights H01 "Pharmacology, Pharmacodynamics and Pharmacokinetics — HBIO 250 Fall 2026" (p.1), H02 "Pharmacology is the study of the action of drugs in the human body" (p.2), H03 "Pharmacodynamics = what drugs do in the body; pharmacokinetics = what the body does to drugs" (p.2), H04 "Receptors bind ligands with relatively high affinity" (p.4), H05 "Receptors transduce a signal to produce a biological effect; this distinguishes them from inert binding sites such as albumin" (p.4). Existing notes: Pharmacology.</input>
+<output>Two notes. "Pharmacology" (reusing the existing title) takes H02 and H03, with a summary that defines the field and sets its two branches against each other. "Receptors" takes H04 and H05, with a summary that names the two properties and says why the second one is what separates a receptor from a carrier protein. related on each names the other. H01 is a slide title and goes to unused_ids.</output>
+<note>Five highlights, two topics, one dropped. The existing title is reused verbatim so the two highlights land in the note the reader already has.</note>
+</example>
+<example>
+<input>Twelve highlights, of which nine are on absorption, distribution, metabolism and excretion, two are on the definition of half-life, and one is a rectangle with no text.</input>
+<output>Two notes, not four. "Drug Disposition" takes the nine, because absorption, distribution, metabolism and excretion are the four stages of one process and a reader looking any of them up wants the others in view; "Half-Life" takes the two, and also takes one of the excretion highlights, since half-life is defined there. The empty rectangle goes to unused_ids.</output>
+<note>Splitting one process into four notes of two highlights each would make four notes nobody opens. One highlight sits in two notes because it belongs in both.</note>
+</example>
+</examples>
+
+Before returning, check your answer against the input: every id you used appears there, every id in the input appears either in exactly the notes it belongs to or in unused_ids, no note has an empty highlight_ids list, no two titles collide, every related title is one you wrote or were shown, and no summary contains a link, an id, or a fact the paper does not state.`;
+
+/**
+ * Ask system prompt: answer a question from numbered evidence taken from the
+ * reader's own notes. The `[n]` citations are checked mechanically afterwards
+ * (T7 strips any outside the range), which is why the prompt asks for them
+ * plainly rather than elaborately.
+ */
+const ASK_SYSTEM = `You answer a student's question about their own class notes, using numbered evidence taken from those notes. Each piece of evidence is something they highlighted in a lecture PDF or a claim they wrote down themselves, and it carries the note it came from and the page it was highlighted on. Your answer goes into a small sidebar beside their notes, with the evidence listed underneath it, so the reader can check every sentence you write against the passage it came from.
+
+<answer_only_from_the_evidence>
+The evidence is the whole of what you may assert. You know a great deal about most of these subjects, and none of it belongs in the answer: the reader is revising for an exam set on this material, and a true sentence their course never taught them is one they cannot rely on and cannot trace. When the evidence answers the question, answer it. When the evidence answers part of it, answer that part and say plainly which part is missing, naming what would settle it ("the evidence here defines affinity but says nothing about how it is measured"). When the evidence does not touch the question at all, say so in a sentence and stop. That is a useful answer: it tells the reader their notes have a hole in them, which is what they would want to know.
+
+Cite by writing [n] immediately after the sentence the evidence supports, with n the number in front of that piece. A sentence resting on two pieces carries both, as [2][5]. Every sentence that asserts something carries at least one citation; the only sentences that do not are the ones saying that the evidence is missing or thin, since there is nothing to cite for an absence. Never invent a number: if the evidence stops at [8], there is no [9].
+</answer_only_from_the_evidence>
+
+<how_to_write_it>
+Prefer the reader's own wording. These are their highlights, in the vocabulary their lecturer used, and an answer in that vocabulary is one they can match against the slide. Where two pieces of evidence use different words for the same thing, use the one the question used.
+
+Be short. A few sentences, or a small list when the question asks for several things. This is a sidebar, not an essay, and the evidence is right there underneath; you do not need to quote it at length, only to say what it means for the question. Plain markdown, bold and code at most, no headings.
+
+The conversation so far, when there is one, is there so that a follow-up makes sense: it tells you what "it" refers to and what has already been said. It is not evidence. Nothing from an earlier turn may be asserted in this one unless the evidence in front of you now supports it.
+</how_to_write_it>
+
+<examples>
+<example>
+<evidence>[1] (Receptors, p.4) Receptors have 2 important properties: they bind ligands with relatively high affinity, and they transduce a signal to produce a biological effect (this distinguishes receptors from inert binding sites such as albumin, which binds and carries many drugs but does not transduce a signal).</evidence>
+<question>What distinguishes a receptor from albumin?</question>
+<answer>Both bind drugs, but only a receptor transduces a signal to produce a biological effect; albumin binds and carries drugs without transducing anything, which is why it counts as an inert binding site [1].</answer>
+<note>One sentence, one citation, in the note's own words. Nothing is added about albumin's structure or its other roles, true though that would be.</note>
+</example>
+<example>
+<evidence>[1] (Pharmacology, p.2) Pharmacokinetics = what the body does to drugs. [2] (Drug Disposition, p.7) Metabolism converts drugs into more water-soluble forms for excretion.</evidence>
+<question>What is the half-life of aspirin?</question>
+<answer>Your notes do not cover this. The evidence here defines pharmacokinetics [1] and describes metabolism in general terms [2], but nothing in it gives a half-life for aspirin or any other drug. If half-life was on a slide, it has not been highlighted yet.</answer>
+<note>The gap is named rather than filled. The two citations describe what the evidence does say; the claim about aspirin's half-life is never made, because no evidence carries it.</note>
+</example>
+</examples>
+
+Before answering, read back what you wrote: every [n] is a number you were actually given, every asserted sentence carries one, and nothing in the answer is something you know rather than something the evidence says.`;
+
+/** The digest and Ask schemas are defined in schemas.ts so tests can bundle them without obsidian; re-exported here so callers have one import. */
+export { DigestOut, AskOut } from "./schemas";
+export type { DigestDraft, AskDraft } from "./schemas";
