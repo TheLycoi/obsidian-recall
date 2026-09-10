@@ -249,6 +249,14 @@ export default class RecallPlugin extends Plugin {
     await this.app.workspace.revealLeaf(leaf);
   }
 
+  /** The inbox, switched to its Ask half. */
+  async openChat(): Promise<void> {
+    await this.openInbox();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_INBOX)) {
+      if (leaf.view instanceof InboxView) await leaf.view.setMode("chat");
+    }
+  }
+
   async chooseDeck(): Promise<string | null> {
     let decks: string[] = [];
     try {

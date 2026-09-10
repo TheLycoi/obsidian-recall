@@ -6,6 +6,7 @@ import { askInstruction } from "./modals";
 import { countClozes, fmtDate } from "./util";
 import { describeError } from "./llm";
 import { LINT_LABELS } from "./lint";
+import { ChatPanel } from "./chatPanel";
 
 export const VIEW_TYPE_INBOX = "recall-inbox";
 
@@ -24,6 +25,9 @@ export class InboxView extends ItemView {
   /** Highlight ids whose flagged-card group is expanded under lintMode "hide". */
   private expandedFlagged = new Set<string>();
   private renderScheduled = false;
+  /** Which half of the sidebar is showing. Persisted in `settings.sidebarMode`. */
+  private mode: "inbox" | "chat" = "inbox";
+  private chat!: ChatPanel;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -45,6 +49,8 @@ export class InboxView extends ItemView {
   async onOpen(): Promise<void> {
     this.contentEl.addClass("recall-inbox");
     this.contentEl.tabIndex = 0;
+    this.mode = this.plugin.settings.sidebarMode;
+    this.chat = new ChatPanel(this.plugin, this);
     this.registerDomEvent(this.contentEl, "keydown", (e) => this.onKey(e));
     this.unsubscribe = this.plugin.store.onChange(() => this.scheduleRender());
     this.render();
@@ -52,6 +58,17 @@ export class InboxView extends ItemView {
 
   async onClose(): Promise<void> {
     this.unsubscribe?.();
+    this.chat?.dispose();
+  }
+
+  /** Switch halves, remember the choice, redraw. Called by `openChat()` in main.ts. */
+  async setMode(mode: "inbox" | "chat"): Promise<void> {
+    if (this.mode !== mode) {
+      this.mode = mode;
+      this.plugin.settings.sidebarMode = mode;
+      await this.plugin.saveSettings();
+    }
+    this.render();
   }
 
   private scheduleRender() {
@@ -91,8 +108,14 @@ export class InboxView extends ItemView {
     const root = this.contentEl;
     const scrollTop = root.scrollTop;
     root.empty();
+    root.toggleClass("is-chat", this.mode === "chat");
 
     this.renderHeader(root);
+
+    if (this.mode === "chat") {
+      this.chat.render(root);
+      return;
+    }
 
     const hs = this.visibleHighlights();
     if (hs.length === 0) {
@@ -113,21 +136,37 @@ export class InboxView extends ItemView {
 
   private renderHeader(root: HTMLElement): void {
     const counts = this.plugin.store.counts();
+    const chat = this.mode === "chat";
     const header = root.createDiv({ cls: "recall-header" });
     const left = header.createDiv({ cls: "recall-header-left" });
-    left.createEl("h2", { text: "Inbox" });
+    left.createEl("h2", { text: chat ? "Ask" : "Inbox" });
     const stats = left.createDiv({ cls: "recall-stats" });
     const stat = (label: string, n: number, cls = "") => {
       const s = stats.createSpan({ cls: `recall-stat ${cls}` });
       s.createSpan({ cls: "recall-stat-n", text: String(n) });
       s.createSpan({ text: ` ${label}` });
     };
-    stat("to review", counts.toReview);
-    if (counts.flagged) stat("flagged", counts.flagged, "is-flagged");
-    if (counts.queued + counts.generating) stat("writing", counts.queued + counts.generating, "is-busy");
-    if (counts.errors) stat("failed", counts.errors, "is-error");
+    if (!chat) {
+      stat("to review", counts.toReview);
+      if (counts.flagged) stat("flagged", counts.flagged, "is-flagged");
+      if (counts.queued + counts.generating) stat("writing", counts.queued + counts.generating, "is-busy");
+      if (counts.errors) stat("failed", counts.errors, "is-error");
+    }
 
     const right = header.createDiv({ cls: "recall-header-right" });
+
+    const tabs = right.createDiv({ cls: "recall-tabs" });
+    for (const [m, label] of [
+      ["inbox", "Inbox"],
+      ["chat", "Chat"],
+    ] as const) {
+      const active = this.mode === m;
+      const tab = tabs.createEl("button", { cls: `recall-tab${active ? " is-active" : ""}`, text: label });
+      tab.setAttribute("aria-pressed", String(active));
+      tab.addEventListener("click", () => void this.setMode(m));
+    }
+
+    if (chat) return;
 
     const filter = right.createEl("select", { cls: "dropdown recall-filter" });
     for (const [v, label] of [
@@ -622,6 +661,9 @@ export class InboxView extends ItemView {
   }
 
   private onKey(e: KeyboardEvent): void {
+    // Chat mode hides every card, so j/k/x/e/Enter would act on nothing the
+    // reader can see — and Enter belongs to the chat textarea.
+    if (this.mode === "chat") return;
     if (this.editing) return;
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return;
