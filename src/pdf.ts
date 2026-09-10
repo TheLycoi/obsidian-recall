@@ -1,4 +1,5 @@
-import type { TFile } from "obsidian";
+import { loadPdfJs } from "obsidian";
+import type { App, TFile } from "obsidian";
 
 /**
  * What the reader has selected in Obsidian's own PDF viewer. pdf.js renders
@@ -32,4 +33,21 @@ export function readPdfSelection(win: Window): PdfSelection | null {
 
 export function isPdfFile(file: TFile | null | undefined): file is TFile {
   return !!file && file.extension.toLowerCase() === "pdf";
+}
+
+/**
+ * Open a vault PDF with Obsidian's bundled pdf.js and return the
+ * PDFDocumentProxy. `loadPdfJs()` is Obsidian's own accessor for the pdf.js
+ * build the PDF viewer uses (obsidian.d.ts:3870, typed `Promise<any>`), and
+ * `Vault.readBinary` gives the bytes (obsidian.d.ts:7426).
+ *
+ * The returned document holds a worker and page caches, so **callers must
+ * call `doc.destroy()` in a `finally`** — see collectPdfHighlights in
+ * src/pdfHighlights.ts. Typed `any` because pdf.js ships no types here; keep
+ * the untyped surface as small as possible around the call site.
+ */
+export async function loadPdfDocument(app: App, file: TFile): Promise<any> {
+  const pdfjs = await loadPdfJs();
+  const data = await app.vault.readBinary(file);
+  return await pdfjs.getDocument({ data }).promise;
 }
