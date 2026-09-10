@@ -97,6 +97,98 @@ Limitations:
   detaches its transcript; re-add it with **Add transcript for document
   highlighting** afterward.
 
+### Card quality
+
+Every card goes through a fixed chain before it reaches the inbox: the
+writer drafts, an optional critique pass reviews the draft, and a
+deterministic linter checks the result. The linter always runs; the
+critique is opt-in. All of this happens inside the background queue
+(`Generator.run` in `src/generator.ts`), so capture itself never waits on
+it — a highlight just takes a little longer to turn into ready cards when
+the critique is on.
+
+**Critique pass** (setting, default off) sends the whole set of cards
+drafted for one highlight to the model in a single call and gets back a
+verdict per card: `keep`, `revise`, or `drop`, plus the Bloom level the card
+sits at (`src/llm.ts:44-58`, `src/llm.ts:162-237`). It checks grounding
+(every answer and cloze deletion must be stated in the highlight), whether
+the cards interfere with each other (two cards whose questions read alike
+but want different answers, or that share an answer), and near-tautology
+(an answer that just restates a word already in the question)
+(`src/llm.ts:174-193`). A `revise` verdict replaces the card's fields and
+records the reason on `critiqueReason`; a `drop` verdict does not delete
+the card — it sets `status: "flagged"` and keeps the reason attached
+(`src/generator.ts:95-110`). If the critique call fails (network, quota),
+the drafted cards are kept as written and simply skip critique rather than
+being lost (`src/generator.ts:112-117`). To avoid spending a model call on
+a highlight that clearly doesn't need one, the critique is skipped when a
+highlight drafts zero or one card and that one card already lints clean
+(`src/generator.ts:82-84`).
+
+**Bloom level** is the critique's judgment of how much a card actually
+asks of the reader, reported using Bloom's taxonomy: a six-level ladder of
+cognitive demand running remember → understand → apply → analyze →
+evaluate → create. The one failure this is meant to catch is a highlight
+that explains a mechanism or a reason getting turned into a card that only
+asks what something is called — the reader can recite the label back
+without knowing how the thing works. This is not a push toward the higher
+end of the ladder: a highlight that states a plain definition and nothing
+more is correctly a "remember" card, and the critique says so rather than
+asking for a harder question the source doesn't support
+(`src/llm.ts:185`, `src/model.ts:31-32`).
+
+**Deterministic lint** (`src/lint.ts`) runs on every card regardless of
+whether the critique is on, both on the freshly drafted cards and again on
+any card the critique revised, since a revision changes the text the
+grounding check needs to see (`src/generator.ts:79`, `:105`). It is pure
+regex- and word-count-based, no model call. Nine checks can fail a card:
+
+| id | what it catches |
+| --- | --- |
+| `cloze-not-grounded` | a `{{cN::…}}` deletion whose text isn't found in the highlight |
+| `cloze-count` | a cloze card with fewer than 1 or more than 3 distinct deletions |
+| `cloze-numbering` | deletion numbers that skip (e.g. 1, 3, no 2) |
+| `cloze-framing` | a deletion body over 6 words, or one containing a linking word like "is"/"which"/"because" — a sign it hides a clause, not a short atom |
+| `qa-empty` | an empty question/answer, or a cloze card with no deletion at all |
+| `qa-answer-long` | a Q&A answer over 12 words |
+| `qa-yes-no` | a question starting with "is", "are", "does", "can", and the like |
+| `card-long` | question + answer + cloze text together over 60 words |
+| `answer-in-question` | the answer sits verbatim inside the question, so there's nothing to retrieve |
+
+Two more checks are warnings rather than failures — they flag a card
+without blocking it: `duplicate-card` (this card repeats a sibling drafted
+in the same batch) and `shared-answer` (two Q&A cards in the same batch
+have the same answer, which risks confusing them in review). Labels for
+all eleven ids, shown in the inbox, live in `LINT_LABELS` in `src/lint.ts`.
+
+**The three settings**, all in Settings → Recall → Card quality:
+
+| setting | default | effect |
+| --- | --- | --- |
+| Critique pass | off | runs the critique described above; adds one model call per highlight |
+| Lint mode | badge only | what happens to a card that fails a lint check: badge it but keep it pending, collapse it behind a "N flagged" toggle, or flag it so it can't be exported |
+| Learn from my decisions | off | shows the writer and critique a few cards you kept or edited, and a few you deleted, from your own inbox history |
+
+With all three left at their defaults, upgrading changes nothing: the
+critique never runs, lint failures show as a badge without changing a
+card's status, and no history is sent. This reproduces 0.3.1 behaviour
+exactly (`src/settings.ts:99-101`).
+
+The cost of turning the critique on is time, not capture speed: it is one
+extra model call per highlight, so cards take longer to appear after you
+send a highlight. Capture — selecting text, dragging with the highlighter,
+sending a PDF selection — is unaffected either way, because everything
+above happens in the background queue after capture has already returned
+(`src/settings.ts:279`).
+
+A **flagged** card (`status: "flagged"`) is one the critique dropped or
+that failed lint under a mode other than "badge only". It stays in the
+inbox with its reason attached rather than being deleted — nothing is
+silently thrown away — but it is excluded from export: only cards with
+`status === "pending"` are ever sent to Anki, whether through AnkiConnect
+or the text-file fallback, so a flagged card cannot reach Anki until you
+review and fix it (`src/model.ts:9`, `src/main.ts:284-292`).
+
 ### Triage
 
 Open the inbox from the ribbon, the status bar (`Recall ✎ 2 · ⧉ 7` = 2
