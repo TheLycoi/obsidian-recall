@@ -160,7 +160,13 @@ export function finalizeHighlights(highlights: Highlight[]): void {
   const now = new Date().toISOString();
   for (const h of new Set(highlights)) {
     const pending = h.cards.some((c) => c.status === "pending");
-    if (!pending && h.status === "ready") {
+    // A highlight still holding flagged cards is not finished: flipping it to
+    // "exported" would drop those cards out of counts() (which only tallies
+    // flagged under a ready highlight) and out of the default inbox filter,
+    // leaving a decision the reader never made and can no longer see. It
+    // stays "ready" until every flagged card is fixed or deleted.
+    const flagged = h.cards.some((c) => c.status === "flagged");
+    if (!pending && !flagged && h.status === "ready") {
       h.status = "exported";
       h.exportedAt = now;
     }

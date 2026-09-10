@@ -71,6 +71,9 @@
 .recall-stat.is-error .recall-stat-n {
   color: var(--color-red);
 }
+.recall-stat.is-flagged .recall-stat-n {
+  color: var(--color-yellow);
+}
 .recall-deck-btn {
   display: inline-flex;
   align-items: center;
@@ -179,6 +182,12 @@
 .recall-badge-duplicate {
   color: var(--color-yellow);
 }
+.recall-badge-warn {
+  color: var(--color-orange);
+}
+.recall-badge-critique {
+  color: var(--color-purple);
+}
 .recall-quote {
   padding: var(--size-4-3);
   border-radius: var(--radius-m);
@@ -236,6 +245,49 @@
 .recall-card-exported,
 .recall-card-duplicate {
   opacity: 0.55;
+}
+.recall-card-flagged {
+  opacity: 0.7;
+  border-color: var(--color-yellow);
+  background: var(--background-primary);
+}
+.recall-card-flagged:hover,
+.recall-card-flagged.is-focused {
+  opacity: 1;
+}
+.recall-card-reason {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  font-style: italic;
+  margin-bottom: var(--size-4-1);
+}
+
+/* Flagged group under lintMode "hide". The cards stay in the DOM; only this
+   container's visibility changes, so nothing is silently removed. */
+.recall-flagged-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  justify-content: flex-start;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  background: transparent;
+  box-shadow: none;
+  padding: var(--size-4-1) var(--size-4-2);
+}
+.recall-flagged-toggle:hover {
+  color: var(--text-normal);
+}
+.recall-flagged-box {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--size-4-2);
+  align-content: start;
+}
+.recall-flagged-box.is-collapsed {
+  display: none;
 }
 .recall-card-top {
   display: flex;

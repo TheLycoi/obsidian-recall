@@ -3,8 +3,9 @@ import type RecallPlugin from "./main";
 import { RECALL_ICON } from "./icon";
 import { isPdfHighlight, liveCards, makeCard, pendingCards, type Card, type Highlight } from "./model";
 import { askInstruction } from "./modals";
-import { countClozes, fmtDate, ungroundedClozes } from "./util";
+import { countClozes, fmtDate } from "./util";
 import { describeError } from "./llm";
+import { LINT_LABELS } from "./lint";
 
 export const VIEW_TYPE_INBOX = "recall-inbox";
 
@@ -20,6 +21,8 @@ export class InboxView extends ItemView {
   private collapsed = new Set<string>();
   private editing: string | null = null;
   private focusedCard: string | null = null;
+  /** Highlight ids whose flagged-card group is expanded under lintMode "hide". */
+  private expandedFlagged = new Set<string>();
   private renderScheduled = false;
 
   constructor(
@@ -120,6 +123,7 @@ export class InboxView extends ItemView {
       s.createSpan({ text: ` ${label}` });
     };
     stat("to review", counts.toReview);
+    if (counts.flagged) stat("flagged", counts.flagged, "is-flagged");
     if (counts.queued + counts.generating) stat("writing", counts.queued + counts.generating, "is-busy");
     if (counts.errors) stat("failed", counts.errors, "is-error");
 
@@ -322,6 +326,28 @@ export class InboxView extends ItemView {
     } else if (cards.length === 0) {
       right.createDiv({ cls: "recall-muted recall-cards-empty", text: "No cards." });
     }
+    // lintMode "hide" collapses flagged cards behind a toggle rather than
+    // dropping them: they are still created in the DOM (invariant 3, nothing
+    // is silently destroyed), just inside a container that starts collapsed.
+    // Expanding the group puts them back into j/k navigation too — see
+    // cardIds(), which skips only the cards a collapsed group is hiding.
+    if (this.plugin.settings.lintMode === "hide" && cards.some((c) => c.status === "flagged")) {
+      for (const c of cards) if (c.status !== "flagged") this.renderCard(right, h, c);
+      const flagged = cards.filter((c) => c.status === "flagged");
+      const expanded = this.expandedFlagged.has(h.id);
+      const toggle = right.createEl("button", { cls: "recall-flagged-toggle" });
+      setIcon(toggle.createSpan(), expanded ? "chevron-down" : "chevron-right");
+      toggle.createSpan({ text: `${flagged.length} flagged` });
+      toggle.title = expanded ? "Hide the flagged cards" : "Show the cards the linter or critique flagged";
+      toggle.addEventListener("click", () => {
+        if (expanded) this.expandedFlagged.delete(h.id);
+        else this.expandedFlagged.add(h.id);
+        this.render();
+      });
+      const box = right.createDiv({ cls: `recall-flagged-box${expanded ? "" : " is-collapsed"}` });
+      for (const c of flagged) this.renderCard(box, h, c);
+      return;
+    }
     for (const c of cards) this.renderCard(right, h, c);
   }
 
@@ -340,11 +366,19 @@ export class InboxView extends ItemView {
     if (c.status === "exported") top.createSpan({ cls: "recall-badge recall-badge-exported", text: "in Anki" });
     if (c.status === "duplicate") top.createSpan({ cls: "recall-badge recall-badge-duplicate", text: "duplicate" });
     if (c.edited && c.status === "pending") top.createSpan({ cls: "recall-badge", text: "edited" });
-    if (c.kind === "cloze" && c.status === "pending") {
-      const missing = ungroundedClozes(c.text, `${h.text}`);
-      if (missing.length) {
-        const b = top.createSpan({ cls: "recall-badge recall-badge-warn", text: "not in highlight" });
-        b.title = `These deletions do not appear in the highlight verbatim: ${missing.join(" · ")}`;
+    // Render what the pipeline actually recorded rather than recomputing it:
+    // the stored lintFailures are the ones lintMode acted on, so a recomputed
+    // check could disagree with the status the card is sitting in. Flagged
+    // cards are included because they are exactly the ones whose reasons the
+    // reader needs in order to decide.
+    if (c.status === "pending" || c.status === "flagged") {
+      for (const id of c.lintFailures ?? []) {
+        const b = top.createSpan({ cls: "recall-badge recall-badge-warn", text: LINT_LABELS[id] });
+        b.title = `Lint check failed: ${id}`;
+      }
+      if (c.critiqueReason) {
+        const b = top.createSpan({ cls: "recall-badge recall-badge-critique", text: "critique" });
+        b.title = c.critiqueReason;
       }
     }
     const actions = top.createDiv({ cls: "recall-card-actions" });
@@ -357,7 +391,13 @@ export class InboxView extends ItemView {
         fn();
       });
     };
-    if (c.status === "pending") {
+    if (this.lintNotes(c)) {
+      btn("wrench", "Fix with linter notes", () => void this.rewrite(h, c, this.lintInstruction(c)));
+    }
+    // Flagged cards get the same actions as pending ones: the reader has to be
+    // able to edit or bin a card the critique objected to, not just re-run the
+    // fix. Only the export path treats flagged differently (main.ts pendingItems).
+    if (c.status === "pending" || c.status === "flagged") {
       btn("pencil", "Edit (e)", () => {
         this.editing = this.editing === c.id ? null : c.id;
         this.render();
@@ -374,6 +414,10 @@ export class InboxView extends ItemView {
     if (this.editing === c.id) {
       this.renderEditor(el, h, c);
       return;
+    }
+
+    if (c.critiqueReason && (c.status === "pending" || c.status === "flagged")) {
+      el.createDiv({ cls: "recall-card-reason", text: c.critiqueReason });
     }
 
     const body = el.createDiv({ cls: "recall-card-body" });
@@ -478,6 +522,24 @@ export class InboxView extends ItemView {
     this.plugin.store.touch();
   }
 
+  /** True when the pipeline recorded something for this card worth fixing. */
+  private lintNotes(c: Card): boolean {
+    return (c.lintFailures?.length ?? 0) > 0 || !!c.critiqueReason;
+  }
+
+  /**
+   * The instruction handed to the rewrite path, e.g.
+   * `Fix these problems: answer is longer than 12 words; the answer restates a
+   * word in the question.` Failure labels come from LINT_LABELS so a renamed
+   * id changes the wording here too, and the critique reason is appended last
+   * because it is a full sentence while the labels are fragments.
+   */
+  private lintInstruction(c: Card): string {
+    const parts = (c.lintFailures ?? []).map((id) => LINT_LABELS[id]);
+    if (c.critiqueReason) parts.push(c.critiqueReason.trim().replace(/\.$/, ""));
+    return `Fix these problems: ${parts.join("; ")}.`;
+  }
+
   private async rewrite(h: Highlight, c: Card, preset?: string): Promise<void> {
     const instruction = preset ?? (await askInstruction(this.plugin.app, "Rewrite card", "e.g. make the answer shorter, ask about the date instead"));
     if (!instruction) return;
@@ -489,6 +551,13 @@ export class InboxView extends ItemView {
       c.back = d.kind === "qa" ? d.back.trim() : "";
       c.text = d.kind === "cloze" ? d.text.trim() : "";
       c.edited = true;
+      // The recorded lint failures and critique reason described the previous
+      // wording, so they are stale once the card has been rewritten. Clearing
+      // them also lifts a flagged card back to pending, which is the point of
+      // the fix action; the linter runs again on the next generation pass.
+      if (c.status === "flagged") c.status = "pending";
+      delete c.lintFailures;
+      delete c.critiqueReason;
       this.plugin.store.touch();
     } catch (e) {
       new Notice(`Recall: ${describeError(e)}`);
@@ -520,7 +589,14 @@ export class InboxView extends ItemView {
   // ---------------------------------------------------------------- keys
 
   private cardIds(): string[] {
-    return Array.from(this.contentEl.querySelectorAll<HTMLElement>(".recall-card")).map((e) => e.dataset.id!).filter(Boolean);
+    // Cards inside a collapsed flagged group are still in the DOM, so they
+    // would otherwise take j/k focus while invisible. Skipping them here
+    // keeps the cursor on what the reader can actually see; expanding the
+    // group brings them straight back into the sequence.
+    return Array.from(this.contentEl.querySelectorAll<HTMLElement>(".recall-card"))
+      .filter((e) => !e.closest(".recall-flagged-box.is-collapsed"))
+      .map((e) => e.dataset.id!)
+      .filter(Boolean);
   }
 
   private neighbourCardId(id: string): string | null {
@@ -568,13 +644,15 @@ export class InboxView extends ItemView {
       case "x":
       case "Delete":
       case "Backspace":
-        if (found && found.card.status === "pending") {
+        // Flagged cards are the likeliest thing a reader wants to throw away
+        // in one keystroke, so triage keys treat them the same as pending.
+        if (found && (found.card.status === "pending" || found.card.status === "flagged")) {
           e.preventDefault();
           this.deleteCard(found.highlight, found.card);
         }
         break;
       case "e":
-        if (found && found.card.status === "pending") {
+        if (found && (found.card.status === "pending" || found.card.status === "flagged")) {
           e.preventDefault();
           this.editing = found.card.id;
           this.render();
