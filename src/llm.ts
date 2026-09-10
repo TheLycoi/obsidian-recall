@@ -3,7 +3,7 @@ import { z } from "zod";
 import { AnthropicBackend } from "./anthropic";
 import type { LlmBackend } from "./backend";
 import { CodexBackend, CodexError } from "./codex";
-import type { Card, Highlight } from "./model";
+import type { BloomLevel, Card, Highlight } from "./model";
 import { buildHighlighterMessage } from "./prompt";
 import type { RecallSettings } from "./settings";
 
@@ -28,6 +28,48 @@ const HighlightsOut = z.object({
 });
 
 export type CardDraft = z.infer<typeof CardOut>;
+
+/**
+ * One verdict per drafted card, from the critique pass.
+ *
+ * Flat and strict on purpose: the Codex backend writes this schema to
+ * `--output-schema` (src/codex.ts:366), which runs strict and rejects unions
+ * and optional fields, so `front`/`back`/`text` are sentinel empty strings
+ * rather than optionals, exactly as `CardOut` above does it.
+ *
+ * The `bloom` members must stay identical to `BloomLevel` in src/model.ts;
+ * `bloomLevelsInSync` below is the compile-time guard on that.
+ */
+const VerdictOut = z.object({
+  index: z.number().int().describe("0-based index of the card being judged, as numbered in the list."),
+  verdict: z
+    .enum(["keep", "revise", "drop"])
+    .describe("keep: use the card as drafted. revise: replace it with the fields below. drop: flag it for the reader."),
+  reason: z.string().describe("One sentence, written to the reader, saying what is wrong with this card."),
+  bloom: z
+    .enum(["remember", "understand", "apply", "analyze", "evaluate", "create"])
+    .describe("Bloom's level this card actually sits at, reported for every verdict."),
+  kind: z.enum(["qa", "cloze"]).describe("The revised card's kind; echo the original's kind for keep and drop."),
+  front: z.string().describe("revise + qa only: the corrected question. Empty string otherwise."),
+  back: z.string().describe("revise + qa only: the corrected answer. Empty string otherwise."),
+  text: z.string().describe("revise + cloze only: the corrected sentence with {{c1::...}} deletions. Empty string otherwise."),
+});
+const VerdictsOut = z.object({ verdicts: z.array(VerdictOut) });
+
+export type CritiqueVerdict = z.infer<typeof VerdictOut>;
+
+/**
+ * Compile-time guard: assignable both ways, so adding, removing or renaming a
+ * member on either side is a type error here rather than a silent drift
+ * between what the critique returns and what `Card.bloom` can hold.
+ */
+type BloomInSync = CritiqueVerdict["bloom"] extends BloomLevel
+  ? BloomLevel extends CritiqueVerdict["bloom"]
+    ? true
+    : never
+  : never;
+const bloomLevelsInSync: BloomInSync = true;
+void bloomLevelsInSync;
 
 /**
  * Card-writer system prompt. Grounded in Wozniak's twenty rules of formulating
@@ -107,6 +149,93 @@ qa | Why are enumerations easier to learn than sets? | the fixed order gives eac
 Before returning, check each card against the highlight: the answer is stated there, the question names its subject, the answer is short, and only one answer fits. Drop any card that fails.`;
 
 /**
+ * Critique system prompt: grades the cards already drafted for ONE highlight,
+ * all of them in a single call so sibling interference is visible.
+ *
+ * Adapted from obsidian-loopback's prompts/critique-v1.md, which is cloze-only
+ * and assumes a Back Extra field Recall does not have. Carried over from it:
+ * the rule that a revision may only use facts the passage states, and the
+ * preference for dropping over a fix that stretches past the text. New here:
+ * Bloom fit, sibling interference, and near-tautology.
+ */
+const CRITIC_SYSTEM = `You grade flashcards that have already been drafted from one highlight in a reader's own notes. You do not write new cards. You judge the cards you are given, repair the ones a small fix would save, and drop the ones that should not reach review. Every card that survives costs the reader minutes a year for years, so it should earn that.
+
+Each card is either qa, a question with a short answer, or cloze, one sentence with {{c1::...}} deletions hiding a term, number, or name. There is no back-extra field: whatever the card teaches has to live in the question and its answer, or in the cloze sentence and the framing left visible around the deletion.
+
+<the_one_rule_that_overrides_everything>
+A revision may only use facts the highlight itself states. Not implied, not true and known to you from elsewhere, not drawn from the surrounding context. The context before and after the highlight is there to resolve a pronoun, expand an abbreviation, or tell you the subject, and it may improve how you word a card. It never earns the right to become the answer. Rewording a card so it says the same fact more precisely is fine. Changing which fact a card tests, on the strength of something only you know, is not.
+
+A deterministic linter runs after you regardless. It checks every cloze deletion by substring against the highlight and will catch hidden text you invented, so treat this rule as load-bearing rather than a formality.
+
+This is why dropping is the right call more often than reaching for a fix that would stretch past what the passage says. When the repair you have in mind needs one fact the highlight does not carry, the verdict is drop.
+</the_one_rule_that_overrides_everything>
+
+<what_to_check>
+Judge every card on each of these, then give it one verdict.
+
+Grounding. The answer, and every cloze deletion, is stated in the highlight. A cloze deletion must appear in it word for word.
+
+Minimum information. One card asks for one thing, and the answer is a term, a number, a name, or a short phrase. A paragraph answer is a card that has not been split yet. Long answers are the most common defect: if the answer runs past a short phrase and the highlight supports a narrower question, revise; if it does not, drop.
+
+Answerable in isolation. The question names its subject. "What does it weigh?" is a card the reader will meet months from now, shuffled among cards from other notes, with nothing to tell them what it is about.
+
+One correct answer. The question makes clear what kind of answer is wanted, and only one answer fits, so the reader recalls the same thing every time. Yes/no questions, and questions whose wording gives the answer away, fail this.
+
+Bloom fit. Place each card on Bloom's taxonomy: remember, understand, apply, analyze, evaluate, or create. The failure that matters here is a highlight that states a mechanism, a cause, or a reason turned into a card that only asks what something is called. The reader can recite the label and still not know how the thing works. The fix is to ask why or how, not what it is called. Do not push for a level the highlight does not support: when the highlight states a definition and nothing more, "remember" is the correct level and a card that tests it is a good card. Report the level the card actually sits at, including for cards you drop.
+
+Interference. You see every card for this highlight at once, which is the point of grading them together. Two cards whose questions read alike but want different answers will be confused in review, and so will two cards that share an answer. When you find such a pair, say so, and prefer revising one of them to hinge on the cue that tells them apart over dropping both. Two cards may legitimately share an answer when they test genuinely different facts and their questions could not be mistaken for each other.
+
+Near-tautology. An answer that merely restates a word already in the question tests nothing, because the reader reads it back off the prompt. "What does the accountability system make possible?" answered "tracking progress over time" is retrieved from the question, not from memory. Revise so the question withholds the word the answer turns on, or drop.
+
+Cloze form. Only the tested span sits inside a deletion and the framing stays outside. Each deletion is short, deletions are numbered from 1 with no gaps, a card carries at most three, and the visible text is enough to recover what is hidden.
+
+Duplication. If the cards that already exist for this highlight test the same fact, drop the new one. This is advisory, not the authoritative check, so when you are unsure whether it is truly the same fact, keep the card rather than guessing it away.
+</what_to_check>
+
+<verdicts>
+keep: the card already satisfies the rules above. Echo its kind and leave front, back, and text empty; the original is used unchanged.
+
+revise: a fix stays entirely inside what the highlight already states. Return the whole corrected card: its kind, and for qa the front and back with text empty, or for cloze the text with front and back empty. A revision that needs a fact the highlight does not carry is not a revision, it is a drop.
+
+drop: the card fails on something you cannot fix without adding a fact the highlight does not state, tests nothing worth reviewing, or duplicates a card that already exists. Echo the original kind and leave front, back, and text empty. The card is not deleted; it is flagged for the reader with your reason, and they decide.
+
+Return exactly one verdict for every card you were given, and no verdict for a card you were not given. The index is the number printed beside the card in the list. The reason is one sentence and the reader reads it, so write it to them: say what is wrong with this card, not which rule it broke.
+</verdicts>
+
+<examples>
+<example>
+<highlight>Spaced repetition works because each successful recall makes the memory harder to lose, so the next review can be scheduled further out. The gap between reviews is called the interval.</highlight>
+<cards>
+0. qa | What is the interval? | the gap between reviews
+1. qa | What is spaced repetition? | a technique where each successful recall makes the memory harder to lose, so the next review can be scheduled further out, which is the principle the whole method rests on
+2. qa | What makes the memory harder to lose in spaced repetition? | successful recall
+3. cloze | Spaced repetition schedules reviews further out because recall {{c1::strengthens the memory trace in the hippocampus}}.
+</cards>
+<verdicts>
+0. keep, remember. The highlight names the term and defines it; a definition sits at remember, and this one is short and exact.
+1. revise, understand. The answer is a paragraph, and it tests the same thing card 2 does, so the two would interfere. Revised to "Why can spaced repetition push reviews further apart?" answered "each successful recall makes the memory harder to lose", which is the mechanism the highlight states.
+2. keep, understand. Asks what drives the effect rather than what it is called, and the answer is three words taken from the highlight.
+3. drop, understand. The hippocampus is nowhere in the highlight. The card tests something that may well be true but the passage never says it, and there is no fix that does not reach past the text.
+</verdicts>
+<note>One drop, one revise, two keeps. Cards 1 and 2 were close enough to interfere, so the revision pulls card 1 onto the why and leaves card 2 where it was. Card 0 stays at remember because that is all the highlight supports.</note>
+</example>
+<example>
+<highlight>Deliberate practice differs from ordinary repetition in that it targets a weakness just past current ability and requires immediate feedback.</highlight>
+<cards>
+0. qa | What is deliberate practice a form of? | practice
+1. qa | What two things distinguish deliberate practice from ordinary repetition? | it targets a weakness just past current ability, and it requires immediate feedback
+</cards>
+<verdicts>
+0. drop, remember. The answer is already sitting inside the question, so there is nothing here to retrieve.
+1. keep, analyze. Two items is a short enough set to ask for at once, both are stated in the highlight, and the question hinges on the distinction the passage is drawing.
+</verdicts>
+<note>A near-tautology is dropped rather than repaired: the only way to save it would be to ask something the highlight does not answer.</note>
+</example>
+</examples>
+
+Before you answer, check that every fact in every revision appears in the highlight, that you returned one verdict per card, and that each index matches the number printed beside its card.`;
+
+/**
  * Highlighter system prompt: picks spans of a whole note worth turning into
  * cards. Follows Wozniak's prioritize / build-on-basics rules and the
  * grounding rule that every span must be locatable verbatim in the note.
@@ -182,6 +311,48 @@ export class LlmClient {
       maxTokens: 8000,
     });
     return parsed.cards.filter((c) => (c.kind === "qa" ? c.front.trim() && c.back.trim() : /\{\{c\d+::/.test(c.text)));
+  }
+
+  /**
+   * "critique": grade every card drafted for one highlight in a single call,
+   * so the critic can see interference between siblings. Never mutates
+   * `cards`; the caller applies the verdicts. Verdicts whose index does not
+   * point at a card are dropped rather than thrown on, since a stray index is
+   * a model slip, not a reason to lose the whole highlight.
+   */
+  async critiqueCards(h: Highlight, cards: Card[], existing: Card[] = []): Promise<CritiqueVerdict[]> {
+    if (!cards.length) return [];
+    const s = this.getSettings();
+    const parts: string[] = [];
+    parts.push(`<source title="${h.sourceTitle}"${h.heading ? ` section="${h.heading}"` : ""}>`);
+    if (h.before) parts.push(`<context_before>\n${h.before}\n</context_before>`);
+    parts.push(`<highlight>\n${h.text}\n</highlight>`);
+    if (h.after) parts.push(`<context_after>\n${h.after}\n</context_after>`);
+    parts.push(`</source>`);
+    parts.push(
+      `Cards drafted from this highlight. The leading number is the index to report:\n` +
+        cards.map((c, i) => `${i}. ${c.kind === "qa" ? `qa | ${c.front} | ${c.back}` : `cloze | ${c.text}`}`).join("\n"),
+    );
+    if (s.language) parts.push(`The cards should be written in ${s.language}.`);
+    if (s.writerInstructions.trim()) {
+      parts.push(`Standing instructions the reader set for their cards; hold these cards to them: ${s.writerInstructions.trim()}`);
+    }
+    if (h.instruction.trim()) parts.push(`Instructions for this highlight: ${h.instruction.trim()}`);
+    if (existing.length) {
+      parts.push(
+        `Cards that already exist for this highlight; a new card testing the same fact is a duplicate:\n` +
+          existing.map((c) => `- ${c.kind === "qa" ? `${c.front} -> ${c.back}` : c.text}`).join("\n"),
+      );
+    }
+    parts.push(`Return exactly one verdict for each of the ${cards.length} cards above.`);
+    const parsed = await this.backend().complete({
+      system: CRITIC_SYSTEM,
+      user: parts.join("\n\n"),
+      schema: VerdictsOut,
+      label: "verdicts",
+      maxTokens: 8000,
+    });
+    return parsed.verdicts.filter((v) => Number.isInteger(v.index) && v.index >= 0 && v.index < cards.length);
   }
 
   /** Rewrite one card according to an instruction ("convert to cloze", "shorter", ...). */
