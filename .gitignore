@@ -2,3 +2,6 @@ node_modules/
 main.js
 *.map
 .DS_Store
+
+# Snapshots of installed builds (contain data.json with API keys — never commit)
+installed-backups/
