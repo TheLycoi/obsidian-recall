@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AnthropicBackend } from "./anthropic";
 import type { LlmBackend } from "./backend";
 import { CodexBackend, CodexError } from "./codex";
+import { buildExamplesBlock } from "./examples";
 import type { BloomLevel, Card, Highlight } from "./model";
 import { buildHighlighterMessage } from "./prompt";
 import type { RecallSettings } from "./settings";
@@ -265,9 +266,29 @@ export class LlmClient {
   private anthropic: AnthropicBackend;
   private codex: CodexBackend;
 
-  constructor(private getSettings: () => RecallSettings) {
+  /**
+   * `getHighlights` mirrors the `getSettings` callback rather than importing
+   * the store: llm.ts stays free of a dependency on `InboxStore` (and so of
+   * `obsidian`, which the store pulls in), and the client keeps holding no
+   * state of its own. It defaults to returning nothing so the existing
+   * one-argument construction, and the tests, keep working.
+   */
+  constructor(
+    private getSettings: () => RecallSettings,
+    private getHighlights: () => Highlight[] = () => [],
+  ) {
     this.anthropic = new AnthropicBackend(getSettings);
     this.codex = new CodexBackend(getSettings);
+  }
+
+  /**
+   * Style examples from the reader's own triage decisions, inbox-wide.
+   * Off by default; returns "" when the setting is off or there is no
+   * history, so nothing is appended in either case.
+   */
+  private examplesBlock(): string {
+    if (!this.getSettings().historyExamples) return "";
+    return buildExamplesBlock(this.getHighlights());
   }
 
   private backend(): LlmBackend {
@@ -296,6 +317,8 @@ export class LlmClient {
     parts.push(`Write at most ${s.maxCardsPerHighlight} cards.`);
     if (s.language) parts.push(`Write the cards in ${s.language}.`);
     if (s.writerInstructions.trim()) parts.push(`Standing instructions: ${s.writerInstructions.trim()}`);
+    const writerExamples = this.examplesBlock();
+    if (writerExamples) parts.push(writerExamples);
     if (h.instruction.trim()) parts.push(`Instructions for this highlight: ${h.instruction.trim()}`);
     if (existing.length) {
       parts.push(
@@ -337,6 +360,8 @@ export class LlmClient {
     if (s.writerInstructions.trim()) {
       parts.push(`Standing instructions the reader set for their cards; hold these cards to them: ${s.writerInstructions.trim()}`);
     }
+    const criticExamples = this.examplesBlock();
+    if (criticExamples) parts.push(criticExamples);
     if (h.instruction.trim()) parts.push(`Instructions for this highlight: ${h.instruction.trim()}`);
     if (existing.length) {
       parts.push(
