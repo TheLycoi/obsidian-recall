@@ -27,7 +27,10 @@ export default class RecallPlugin extends Plugin {
     registerRecallIcon();
     this.store = new InboxStore(this.app, this.manifest.dir ?? `${this.app.vault.configDir}/plugins/recall`);
     await this.store.load();
-    this.llm = new LlmClient(() => this.settings);
+    this.llm = new LlmClient(
+      () => this.settings,
+      () => this.store.all(),
+    );
     this.anki = new AnkiClient(() => this.settings.ankiConnectUrl);
     this.generator = new Generator(this);
 
@@ -231,10 +234,11 @@ export default class RecallPlugin extends Plugin {
     if (this.highlighter?.enabled) parts.push("🖊 highlighter");
     if (c.queued + c.generating) parts.push(`✎ ${c.queued + c.generating}`);
     if (c.toReview) parts.push(`⧉ ${c.toReview}`);
+    if (c.flagged) parts.push(`⚑ ${c.flagged}`);
     if (c.errors) parts.push(`⚠ ${c.errors}`);
     this.statusBar.setText(parts.length ? `Recall ${parts.join(" · ")}` : "Recall");
     this.statusBar.toggleClass("recall-statusbar-highlighter", !!this.highlighter?.enabled);
-    this.statusBar.title = `Recall: ${this.highlighter?.enabled ? "highlighter mode on, " : ""}${c.queued + c.generating} writing, ${c.toReview} cards to review${c.errors ? `, ${c.errors} failed` : ""}. Click to open the inbox.`;
+    this.statusBar.title = `Recall: ${this.highlighter?.enabled ? "highlighter mode on, " : ""}${c.queued + c.generating} writing, ${c.toReview} cards to review${c.flagged ? `, ${c.flagged} flagged` : ""}${c.errors ? `, ${c.errors} failed` : ""}. Click to open the inbox.`;
   }
 
   async openInbox(): Promise<void> {
@@ -277,6 +281,10 @@ export default class RecallPlugin extends Plugin {
     await this.saveSettings();
   }
 
+  // The `c.status === "pending"` strict-equality allowlist below is the only
+  // thing keeping flagged cards out of Anki: this is the single funnel into
+  // both exportHighlights and exportAsTextFile. Widening it into a denylist
+  // (e.g. `!== "exported"`) would export cards the critique rejected.
   private pendingItems(list: Highlight[]): Array<{ card: Card; highlight: Highlight }> {
     const items: Array<{ card: Card; highlight: Highlight }> = [];
     for (const h of list) {
