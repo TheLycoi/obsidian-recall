@@ -124,6 +124,44 @@ export function lintCard(card: Card, highlight: Highlight, siblings: Card[]): Li
   return { failures, warnings };
 }
 
+/**
+ * Cross-interference: two cards from DIFFERENT highlights whose comparison
+ * key collides (e.g. two qa cards both answering "six months"). Takes
+ * `{ card, highlightId }` rather than `Highlight` so the signature stays free
+ * of anything that could pull Obsidian in transitively. Same-highlight pairs
+ * are excluded on purpose — that overlap is already the per-batch
+ * duplicate-card / shared-answer check's job in lintCard, and double-badging
+ * it here would be redundant.
+ */
+export function findCrossInterference(
+  items: Array<{ card: Card; highlightId: string }>,
+): Map<string, string[]> {
+  const groups = new Map<string, Array<{ card: Card; highlightId: string }>>();
+  for (const item of items) {
+    const { card } = item;
+    const key = normalizePlain(card.kind === "qa" ? card.back : card.text);
+    if (key.length === 0) continue;
+    const groupKey = card.kind + key;
+    const group = groups.get(groupKey);
+    if (group) {
+      group.push(item);
+    } else {
+      groups.set(groupKey, [item]);
+    }
+  }
+
+  const result = new Map<string, string[]>();
+  for (const group of groups.values()) {
+    for (const item of group) {
+      const partners = group
+        .filter((other) => other.highlightId !== item.highlightId)
+        .map((other) => other.card.id);
+      if (partners.length > 0) result.set(item.card.id, partners);
+    }
+  }
+  return result;
+}
+
 /** Short human label per id, for the inbox badge. */
 export const LINT_LABELS: Record<LintFailureId | LintWarningId, string> = {
   "cloze-not-grounded": "not grounded",
@@ -137,4 +175,5 @@ export const LINT_LABELS: Record<LintFailureId | LintWarningId, string> = {
   "answer-in-question": "answer in question",
   "duplicate-card": "duplicate",
   "shared-answer": "shared answer",
+  "cross-interference": "answer used elsewhere",
 };

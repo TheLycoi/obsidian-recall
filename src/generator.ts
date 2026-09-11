@@ -123,6 +123,8 @@ export class Generator {
         // Stored in every mode, including "badge", so the inbox can render them.
         if (failures.length) c.lintFailures = failures;
         if (failures.length && settings.lintMode !== "badge") c.status = "flagged";
+        const warnings = lint.get(c)!.warnings;
+        if (warnings.length) c.lintWarnings = warnings;
       }
 
       for (const c of cards) h.cards.push(c);

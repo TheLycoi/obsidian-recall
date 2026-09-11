@@ -339,3 +339,86 @@ test("failures are returned in the fixed table order, not push-arbitrary order",
   // word back; card-long does not apply, well under 60 words).
   assert.deepEqual(rQaBad.failures, ["qa-yes-no", "answer-in-question"]);
 });
+
+// ---- findCrossInterference
+
+test("findCrossInterference: two qa cards from different highlights with equivalent backs interfere", () => {
+  const c1 = qaCard("What stage involves intending to change?", "six months", { id: "c1", highlightId: "h1" });
+  const c2 = qaCard("How long until the client changes?", "Six months.", { id: "c2", highlightId: "h2" });
+  const map = l.findCrossInterference([
+    { card: c1, highlightId: "h1" },
+    { card: c2, highlightId: "h2" },
+  ]);
+  assert.deepEqual(map.get("c1"), ["c2"]);
+  assert.deepEqual(map.get("c2"), ["c1"]);
+  assert.equal(map.size, 2);
+});
+
+test("findCrossInterference: same-highlight pairs are excluded", () => {
+  const c1 = qaCard("What stage involves intending to change?", "six months", { id: "c1", highlightId: "h1" });
+  const c2 = qaCard("How long until the client changes?", "Six months.", { id: "c2", highlightId: "h1" });
+  const map = l.findCrossInterference([
+    { card: c1, highlightId: "h1" },
+    { card: c2, highlightId: "h1" },
+  ]);
+  assert.equal(map.size, 0);
+});
+
+test("findCrossInterference: two cloze cards with identical text interfere across highlights", () => {
+  const c1 = clozeCard("Contemplation: intends to change within {{c1::six months}}.", { id: "c1", highlightId: "h1" });
+  const c2 = clozeCard("Contemplation: intends to change within {{c1::six months}}.", { id: "c2", highlightId: "h2" });
+  const map = l.findCrossInterference([
+    { card: c1, highlightId: "h1" },
+    { card: c2, highlightId: "h2" },
+  ]);
+  assert.deepEqual(map.get("c1"), ["c2"]);
+  assert.deepEqual(map.get("c2"), ["c1"]);
+});
+
+test("findCrossInterference: a qa back and a cloze text that normalize equal never collide (different kinds)", () => {
+  const c1 = qaCard("How long?", "six months", { id: "c1", highlightId: "h1" });
+  const c2 = clozeCard("six months", { id: "c2", highlightId: "h2" });
+  const map = l.findCrossInterference([
+    { card: c1, highlightId: "h1" },
+    { card: c2, highlightId: "h2" },
+  ]);
+  assert.equal(map.size, 0);
+});
+
+test("findCrossInterference: cards with an empty key are skipped", () => {
+  const c1 = qaCard("How long?", "", { id: "c1", highlightId: "h1" });
+  const c2 = qaCard("When?", "", { id: "c2", highlightId: "h2" });
+  const map = l.findCrossInterference([
+    { card: c1, highlightId: "h1" },
+    { card: c2, highlightId: "h2" },
+  ]);
+  assert.equal(map.size, 0);
+});
+
+test("findCrossInterference: three qa cards across three highlights sharing a back all list each other", () => {
+  const c1 = qaCard("Q1?", "six months", { id: "c1", highlightId: "h1" });
+  const c2 = qaCard("Q2?", "six months", { id: "c2", highlightId: "h2" });
+  const c3 = qaCard("Q3?", "six months", { id: "c3", highlightId: "h3" });
+  const map = l.findCrossInterference([
+    { card: c1, highlightId: "h1" },
+    { card: c2, highlightId: "h2" },
+    { card: c3, highlightId: "h3" },
+  ]);
+  assert.deepEqual(map.get("c1"), ["c2", "c3"]);
+  assert.deepEqual(map.get("c2"), ["c1", "c3"]);
+  assert.deepEqual(map.get("c3"), ["c1", "c2"]);
+});
+
+test("findCrossInterference: two h1 cards sharing a back with h2 only cross-list the h2 card", () => {
+  const c1 = qaCard("Q1?", "six months", { id: "c1", highlightId: "h1" });
+  const c3 = qaCard("Q3?", "six months", { id: "c3", highlightId: "h1" });
+  const c2 = qaCard("Q2?", "six months", { id: "c2", highlightId: "h2" });
+  const map = l.findCrossInterference([
+    { card: c1, highlightId: "h1" },
+    { card: c2, highlightId: "h2" },
+    { card: c3, highlightId: "h1" },
+  ]);
+  assert.deepEqual(map.get("c2"), ["c1", "c3"]);
+  assert.deepEqual(map.get("c1"), ["c2"]);
+  assert.deepEqual(map.get("c3"), ["c2"]);
+});

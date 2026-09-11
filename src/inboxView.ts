@@ -420,6 +420,10 @@ export class InboxView extends ItemView {
         const b = top.createSpan({ cls: "recall-badge recall-badge-warn", text: LINT_LABELS[id] });
         b.title = `Lint check failed: ${id}`;
       }
+      for (const id of c.lintWarnings ?? []) {
+        const b = top.createSpan({ cls: "recall-badge recall-badge-notice", text: LINT_LABELS[id] });
+        b.title = `Lint warning: ${id}`;
+      }
       if (c.critiqueReason) {
         const b = top.createSpan({ cls: "recall-badge recall-badge-critique", text: "critique" });
         b.title = c.critiqueReason;
@@ -601,6 +605,7 @@ export class InboxView extends ItemView {
       // the fix action; the linter runs again on the next generation pass.
       if (c.status === "flagged") c.status = "pending";
       delete c.lintFailures;
+      delete c.lintWarnings;
       delete c.critiqueReason;
       this.plugin.store.touch();
     } catch (e) {

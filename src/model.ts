@@ -26,7 +26,7 @@ export type LintFailureId =
   | "card-long"
   | "answer-in-question";
 
-export type LintWarningId = "duplicate-card" | "shared-answer";
+export type LintWarningId = "duplicate-card" | "shared-answer" | "cross-interference";
 
 /** Bloom's taxonomy level, judged by the critique pass. See README. */
 export type BloomLevel = "remember" | "understand" | "apply" | "analyze" | "evaluate" | "create";
@@ -48,6 +48,8 @@ export interface Card {
   createdAt: string;
   /** Deterministic lint failures recorded when the card was generated. */
   lintFailures?: LintFailureId[];
+  /** Deterministic lint warnings recorded at generation; advisory, never change status. */
+  lintWarnings?: LintWarningId[];
   /** One-sentence reason from the critique pass, shown to the reviewer. */
   critiqueReason?: string;
   /** Bloom level the critique judged this card to sit at. */
