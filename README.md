@@ -464,11 +464,25 @@ regex- and word-count-based, no model call. Nine checks can fail a card:
 | `card-long` | question + answer + cloze text together over 60 words |
 | `answer-in-question` | the answer sits verbatim inside the question, so there's nothing to retrieve |
 
-Two more checks are warnings rather than failures — they flag a card
-without blocking it: `duplicate-card` (this card repeats a sibling drafted
-in the same batch) and `shared-answer` (two Q&A cards in the same batch
-have the same answer, which risks confusing them in review). Labels for
-all eleven ids, shown in the inbox, live in `LINT_LABELS` in `src/lint.ts`.
+Three more checks are warnings rather than failures — they show as a
+softer badge than a failure, never change the card's status, and are not
+picked up by the "Fix with linter notes" wrench, which only acts on
+`lintFailures` and a critique rejection (`src/inboxView.ts:615`, `:626`).
+`duplicate-card` (this card repeats a sibling drafted in the same batch)
+and `shared-answer` (two Q&A cards in the same batch have the same
+answer, which risks confusing them in review) are computed per batch and
+stored on the card as `lintWarnings` (`src/generator.ts:126-127`).
+`cross-interference` is different: rather than being computed once per
+batch, the inbox recomputes it on every render over every pending card
+under every ready highlight across the whole inbox, the same population
+`pendingItems` uses in `src/main.ts` (`findCrossInterference` in
+`src/lint.ts:136`, `rebuildCrossInterference` in
+`src/inboxView.ts:155-167`). It badges two cards from *different*
+highlights whose normalized answer or cloze text collide (same kind
+only), naming the other card's note in the tooltip; because it's derived
+rather than stored, binning or exporting one partner clears the other's
+badge on the next render. Labels for all twelve ids, shown in the inbox,
+live in `LINT_LABELS` in `src/lint.ts`.
 
 **The three settings**, all in Settings → Recall → Card quality:
 
