@@ -110,6 +110,7 @@ export class InboxView extends ItemView {
     root.empty();
     root.toggleClass("is-chat", this.mode === "chat");
 
+    this.renderTabs(root);
     this.renderHeader(root);
 
     if (this.mode === "chat") {
@@ -134,6 +135,21 @@ export class InboxView extends ItemView {
     root.scrollTop = scrollTop;
   }
 
+  /** The Inbox | Chat switch, in its own row above the header so it sits in the same place in both modes. */
+  private renderTabs(root: HTMLElement): void {
+    const row = root.createDiv({ cls: "recall-tabs-row" });
+    const tabs = row.createDiv({ cls: "recall-tabs" });
+    for (const [m, label] of [
+      ["inbox", "Inbox"],
+      ["chat", "Chat"],
+    ] as const) {
+      const active = this.mode === m;
+      const tab = tabs.createEl("button", { cls: `recall-tab${active ? " is-active" : ""}`, text: label });
+      tab.setAttribute("aria-pressed", String(active));
+      tab.addEventListener("click", () => void this.setMode(m));
+    }
+  }
+
   private renderHeader(root: HTMLElement): void {
     const counts = this.plugin.store.counts();
     const chat = this.mode === "chat";
@@ -154,17 +170,6 @@ export class InboxView extends ItemView {
     }
 
     const right = header.createDiv({ cls: "recall-header-right" });
-
-    const tabs = right.createDiv({ cls: "recall-tabs" });
-    for (const [m, label] of [
-      ["inbox", "Inbox"],
-      ["chat", "Chat"],
-    ] as const) {
-      const active = this.mode === m;
-      const tab = tabs.createEl("button", { cls: `recall-tab${active ? " is-active" : ""}`, text: label });
-      tab.setAttribute("aria-pressed", String(active));
-      tab.addEventListener("click", () => void this.setMode(m));
-    }
 
     if (chat) return;
 

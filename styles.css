@@ -433,6 +433,11 @@ body.recall-highlighter-active .textLayer ::selection {
 }
 
 /* Sidebar tabs ----------------------------------------------------------- */
+.recall-tabs-row {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: var(--size-4-2);
+}
 .recall-tabs {
   display: inline-flex;
   padding: 2px;
