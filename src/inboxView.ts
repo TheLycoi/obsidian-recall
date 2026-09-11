@@ -5,7 +5,7 @@ import { isPdfHighlight, liveCards, makeCard, pendingCards, type Card, type High
 import { askInstruction } from "./modals";
 import { countClozes, fmtDate } from "./util";
 import { describeError } from "./llm";
-import { LINT_LABELS } from "./lint";
+import { findCrossInterference, LINT_LABELS } from "./lint";
 import { ChatPanel } from "./chatPanel";
 
 export const VIEW_TYPE_INBOX = "recall-inbox";
@@ -27,6 +27,14 @@ export class InboxView extends ItemView {
   private renderScheduled = false;
   /** Which half of the sidebar is showing. Persisted in `settings.sidebarMode`. */
   private mode: "inbox" | "chat" = "inbox";
+  /**
+   * Scratch state for one render, never persisted: card id -> ids of cards in
+   * OTHER highlights that would collide with it in Anki, plus card id -> the
+   * highlight it belongs to so the tooltip can name the partner's source.
+   * Rebuilt every render, so binning one partner clears the other's badge.
+   */
+  private crossInterference = new Map<string, string[]>();
+  private cardOwner = new Map<string, Highlight>();
   private chat!: ChatPanel;
 
   constructor(
@@ -118,6 +126,8 @@ export class InboxView extends ItemView {
       return;
     }
 
+    this.rebuildCrossInterference();
+
     const hs = this.visibleHighlights();
     if (hs.length === 0) {
       const empty = root.createDiv({ cls: "recall-empty" });
@@ -133,6 +143,27 @@ export class InboxView extends ItemView {
     for (const [path, list] of groups) this.renderSource(root, path, list);
 
     root.scrollTop = scrollTop;
+  }
+
+  /**
+   * Recompute the cross-highlight collisions over the WHOLE store, not the
+   * filtered view: a partner hidden by the current filter still collides in
+   * Anki. The population matches main.ts's pendingItems (ready highlights,
+   * pending cards) so the badge means exactly "this would collide on export".
+   * Derived, never stored, so it cannot go stale.
+   */
+  private rebuildCrossInterference(): void {
+    const items: Array<{ card: Card; highlightId: string }> = [];
+    this.cardOwner.clear();
+    for (const h of this.plugin.store.all()) {
+      if (h.status !== "ready") continue;
+      for (const c of h.cards) {
+        if (c.status !== "pending") continue;
+        items.push({ card: c, highlightId: h.id });
+        this.cardOwner.set(c.id, h);
+      }
+    }
+    this.crossInterference = findCrossInterference(items);
   }
 
   /** The Inbox | Chat switch, in its own row above the header so it sits in the same place in both modes. */
@@ -423,6 +454,15 @@ export class InboxView extends ItemView {
       for (const id of c.lintWarnings ?? []) {
         const b = top.createSpan({ cls: "recall-badge recall-badge-notice", text: LINT_LABELS[id] });
         b.title = `Lint warning: ${id}`;
+      }
+      const partners = this.crossInterference.get(c.id);
+      if (partners) {
+        const where = partners
+          .map((id) => this.cardOwner.get(id))
+          .filter((owner): owner is Highlight => owner !== undefined)
+          .map((owner) => (owner.title ? `${owner.sourceTitle} \u2014 ${owner.title}` : owner.sourceTitle));
+        const b = top.createSpan({ cls: "recall-badge recall-badge-notice", text: LINT_LABELS["cross-interference"] });
+        b.title = where.length > 0 ? `Same answer as a card in: ${where.join("; ")}` : "Same answer as a card in another highlight";
       }
       if (c.critiqueReason) {
         const b = top.createSpan({ cls: "recall-badge recall-badge-critique", text: "critique" });
